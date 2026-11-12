@@ -21,6 +21,8 @@ The local agent begins with 100 NEAR spendable and a separate 20 NEAR operationa
 
 The [integration diagnostic](http://127.0.0.1:4389/diagnostic) displays recorded testnet oracle and model observations. It does not run a new live probe or enable wagering. The scratch contract in `diagnostic-contract/` exists only to inspect the testnet oracle callback; it is not suitable for custody or production settlement. Its paid testnet transaction and limitations are recorded in `docs/research/price-settlement-feasibility.md`. The observed model responses and limits are recorded in `docs/research/market-data-and-model-feasibility.md`.
 
+To rebuild the scratch contract and test rejection of unauthorized calls on the local sandbox, run `npm run test:diagnostic-contract` with the sandbox environment variables configured above. The positive callback was exercised against the real testnet oracle in the recorded transaction; the local authorization test does not reproduce the external oracle service.
+
 ## Verify
 
 After the build above, install Chromium and its Linux system dependencies, then run the checks. The `--with-deps` step may require administrator privileges:

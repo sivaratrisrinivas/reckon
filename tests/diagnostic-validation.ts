@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { validateModel, validateReference } from '../diagnostic/validate.js';
+import { validateModel, validateOracleReport } from '../diagnostic/validate.js';
 
 const evidence = JSON.parse(await readFile('docs/evidence/model-attempt-instruct.json', 'utf8'));
 const reference = { timestamp: evidence.evidence.reference_report_timestamp_ns, recency_duration_sec: 300, prices: [evidence.evidence.reference] };
 const nowMs = evidence.evidence.fetched_at_unix * 1000;
-assert.equal(validateReference(reference, nowMs, 300_000).ok, true);
-assert.equal(validateReference(reference, nowMs + 301_000, 300_000).ok, false);
-assert.equal(validateReference({...reference, prices: [{asset_id: 'wrap.near', price: null}]}, nowMs, 300_000).ok, false);
-assert.equal(validateReference({...reference, prices: [{asset_id: 'wrong', price: evidence.evidence.reference.price}]}, nowMs, 300_000).ok, false);
-assert.equal(validateReference(null, nowMs, 300_000).ok, false);
+const report = validateOracleReport(reference, nowMs, 300_000);
+assert.equal(report.ok, true);
+if (report.ok) assert.equal(report.value.externalObservationTimeVerified, false);
+assert.equal(validateOracleReport(reference, nowMs + 301_000, 300_000).ok, false);
+assert.equal(validateOracleReport({...reference, prices: [{asset_id: 'wrap.near', price: null}]}, nowMs, 300_000).ok, false);
+assert.equal(validateOracleReport({...reference, prices: [{asset_id: 'wrong', price: evidence.evidence.reference.price}]}, nowMs, 300_000).ok, false);
+assert.equal(validateOracleReport(null, nowMs, 300_000).ok, false);
 assert.equal(validateModel(evidence.choice.message.content).ok, true);
 assert.equal(validateModel(null).ok, false);
 assert.equal(validateModel('{').ok, false);

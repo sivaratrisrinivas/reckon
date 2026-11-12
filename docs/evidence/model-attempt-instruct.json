@@ -97,5 +97,44 @@
     },
     "finish_reason": "stop",
     "logprobs": null
+  },
+  "request_configuration": {
+    "max_tokens": 512,
+    "system_prompt": "Return a structured judgment using only the supplied evidence. Confidence is probability that your selected side is correct. You may abstain with null confidence when the evidence is insufficient.",
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "forecast",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "decision": {
+              "type": "string",
+              "enum": [
+                "yes",
+                "no",
+                "abstain"
+              ]
+            },
+            "confidence": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "decision",
+            "confidence",
+            "justification"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
   }
 }

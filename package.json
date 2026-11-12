@@ -16,7 +16,9 @@
     "pretest:contract": "sh scripts/check-local.sh",
     "build:contract": "cargo build --manifest-path contract/Cargo.toml --release --target wasm32-unknown-unknown --locked",
     "lint": "eslint . && cargo fmt --manifest-path contract/Cargo.toml --check",
-    "audit:high": "npm audit --audit-level=high"
+    "audit:high": "npm audit --audit-level=high",
+    "build:diagnostic": "cargo build --manifest-path diagnostic-contract/Cargo.toml --release --target wasm32-unknown-unknown --locked",
+    "test:diagnostic-contract": "npm run build:diagnostic && tsx tests/diagnostic-contract.ts"
   },
   "dependencies": {
     "near-workspaces": "5.0.0",

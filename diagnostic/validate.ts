@@ -4,7 +4,8 @@ function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export function validateReference(value: unknown, nowMs: number, maxAgeMs: number): Result<{ multiplier: string; decimals: number; reportTimestampNs: string }> {
+// This checks the oracle report's age; it cannot establish the external market observation time.
+export function validateOracleReport(value: unknown, nowMs: number, maxAgeMs: number): Result<{ multiplier: string; decimals: number; reportTimestampNs: string; externalObservationTimeVerified: false }> {
   if (!object(value) || typeof value.timestamp !== 'string' || !/^\d+$/.test(value.timestamp) || typeof value.recency_duration_sec !== 'number' || !Number.isSafeInteger(value.recency_duration_sec) || value.recency_duration_sec <= 0 || !Array.isArray(value.prices) || value.prices.length !== 1) return { ok: false, reason: 'Malformed oracle response' };
   if (!Number.isSafeInteger(nowMs) || !Number.isSafeInteger(maxAgeMs) || maxAgeMs <= 0) return { ok: false, reason: 'Invalid freshness limits' };
   const timestamp = BigInt(value.timestamp);
@@ -14,7 +15,7 @@ export function validateReference(value: unknown, nowMs: number, maxAgeMs: numbe
   if (!object(entry) || entry.asset_id !== 'wrap.near' || !object(entry.price)) return { ok: false, reason: 'Missing or unexpected asset price' };
   const { multiplier, decimals } = entry.price;
   if (typeof multiplier !== 'string' || !/^\d+$/.test(multiplier) || BigInt(multiplier) === 0n || typeof decimals !== 'number' || !Number.isInteger(decimals) || decimals < 0 || decimals > 24) return { ok: false, reason: 'Invalid price or units' };
-  return { ok: true, value: { multiplier, decimals, reportTimestampNs: value.timestamp } };
+  return { ok: true, value: { multiplier, decimals, reportTimestampNs: value.timestamp, externalObservationTimeVerified: false } };
 }
 
 export type ModelDecision = { decision: 'yes' | 'no'; confidence: number; justification: string } | { decision: 'abstain'; confidence: null; justification: string };
