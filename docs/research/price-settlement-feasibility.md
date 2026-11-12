@@ -31,3 +31,9 @@ References: [cached reads](https://github.com/out-layer/oracle-example/blob/main
 ## Design consequence
 
 Do not describe the returned price as a historical price at an exact expiry. A bounded settlement-time observation rule can be stated honestly, but caller timing and source caching remain relevant. Fixed-expiry semantics require a different verified data path. Paid refresh feasibility, funding, response validation, failure recovery, and callback timing remain untested.
+
+## Follow-up observation: 13 November 2026, IST
+
+A finality-final `get_price_data` query at testnet block 277420553 again returned `price: null` for `wrap.near`, with `recency_duration_sec: 300`. The response's outer timestamp was `1794520104391775884` ns; it is the executing block time, not an external market observation time. This response is unavailable as a reference and must not be passed to a model or used for settlement. It does not establish whether a paid refresh succeeds.
+
+The execution environment had no configured NEAR AI credential or funded testnet account credential. Consequently no authenticated inference, paid refresh, callback, receipt cost, latency, or settlement-window and reserve measurements were obtained. These remain prerequisites for issue #3, not evidence that the approved price or trust model is infeasible. Re-run on a replaceable funded account and record actual receipts and provider timing before choosing those parameters.

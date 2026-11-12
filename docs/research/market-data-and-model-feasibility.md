@@ -21,3 +21,9 @@ The official [OpenAI compatibility guide](https://docs.near.ai/cloud/guides/open
 Unauthenticated GET requests to `/v1/models` and `/v1/model/list` succeeded. The first returned 64 models during the check, including models advertising structured-output support. Example model IDs in prose documentation may differ from the current catalog, so validate a configured model against the live catalog instead of copying a sample ID blindly.
 
 Actual authenticated inference, cost, latency, credit-provider compatibility, and response-format behavior remain untested. Select and record the actual model and prompt configuration when those checks run. No claim of private or attested inference is part of the agreed product.
+
+## Follow-up observation: 13 November 2026, IST
+
+At 2026-11-12 21:48:22 UTC, the public Coinbase NEAR-USD one-minute candle endpoint returned ten rows. The latest completed candle began at 21:47:00 UTC and closed at 3.4301 USD; the 21:48 candle was still in progress and is not a completed observation. The response again advertised `Cache-Control: public, max-age=14400`; validate source times on every request. The testnet oracle returned a null reference at the same time, so no price difference or valid forecast input can be established from this check.
+
+No model call was made: the execution environment did not have a configured NEAR AI API key. The measured candle is a point-in-time diagnostic, not a fallback settlement price or a prediction.
