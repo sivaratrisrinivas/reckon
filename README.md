@@ -21,6 +21,21 @@ The local agent begins with 100 NEAR spendable and a separate 20 NEAR operationa
 
 The [integration diagnostic](http://127.0.0.1:4389/diagnostic) displays recorded testnet oracle and model observations. It does not run a new live probe or enable wagering. The scratch contract in `diagnostic-contract/` exists only to inspect the testnet oracle callback; it is not suitable for custody or production settlement. Its paid testnet transaction and limitations are recorded in `docs/research/price-settlement-feasibility.md`. The observed model responses and limits are recorded in `docs/research/market-data-and-model-feasibility.md`.
 
+To run a new diagnostic, first deploy the scratch contract to a dedicated, funded testnet account and initialize it with `reset`; do not use an account holding real money. The runner needs `NEAR_ACCOUNT_ID`, `NEAR_AI_API_KEY` and `NEAR_AI_MODEL` in a private `.env`, the account's signing key in the NEAR CLI legacy keychain, and NEAR CLI installed at `.local/near-cli/node_modules/.bin/near`. With Node 26 on `PATH`, run `node --import tsx diagnostic/live-probe.ts`. Each run may spend testnet NEAR and model credits. It writes a private JSON result under `.local/diagnostic-runs/`; the diagnostic page displays the latest result after a refresh. The runner does not deploy or reset contracts, publish predictions, or accept wagers. The oracle report time does not verify the external market observation time. A timeout may leave costs or transaction completion unknown; check the testnet account before retrying. If a run is forcibly interrupted, check for a pending transaction before removing a leftover `.local/diagnostic-runs/probe.lock`.
+
+For the disposable account used in the recorded rehearsal, the following commands rebuild, deploy and reset the scratch contract. **Reset deletes the scratch contract's stored callback; never use these commands on an account holding another contract or real funds.** The NEAR CLI is version 0.31.1; the following installs it locally and runs its installer explicitly because npm may block package install scripts:
+
+```sh
+npm install --prefix .local/near-cli near-cli-rs@0.31.1
+node .local/near-cli/node_modules/near-cli-rs/install.js
+export PATH="$PWD/.local/near-cli/node_modules/.bin:$PATH"
+npm run build:diagnostic
+near contract deploy reckon-srinivas-probe-2026.testnet use-file diagnostic-contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm without-init-call network-config testnet sign-with-legacy-keychain send
+near contract call-function as-transaction reckon-srinivas-probe-2026.testnet reset json-args '{}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as reckon-srinivas-probe-2026.testnet network-config testnet sign-with-legacy-keychain send
+```
+
+For another account, replace both occurrences of the account name and use only a disposable testnet account with its own signing key. The local lock prevents concurrent runs on one machine; it does not coordinate different machines.
+
 To rebuild the scratch contract and test rejection of unauthorized calls on the local sandbox, run `npm run test:diagnostic-contract` with the sandbox environment variables configured above. The positive callback was exercised against the real testnet oracle in the recorded transaction; the local authorization test does not reproduce the external oracle service.
 
 ## Verify

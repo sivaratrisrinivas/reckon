@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { Worker } from 'near-workspaces';
 
 const worker = await Worker.init();
@@ -16,9 +16,19 @@ const files: Record<string, [string, string]> = {
   '/diagnostic': ['public/diagnostic.html', 'text/html; charset=utf-8'],
   '/diagnostic-evidence.json': ['docs/evidence/model-attempt-1.json', 'application/json; charset=utf-8'],
   '/diagnostic-instruct-evidence.json': ['docs/evidence/model-attempt-instruct.json', 'application/json; charset=utf-8'],
+  '/diagnostic.js': ['public/diagnostic.js', 'text/javascript; charset=utf-8'],
 };
 const server = createServer(async (req, res) => {
   try {
+    if (req.url === '/api/diagnostic/latest' && req.method === 'GET') {
+      const names = await readdir('.local/diagnostic-runs').catch(() => []);
+      const latest = names.filter(name => /^\d+\.json$/.test(name)).sort().at(-1);
+      if (!latest) { res.writeHead(404).end(); return; }
+      const body = await readFile(`.local/diagnostic-runs/${latest}`);
+      res.writeHead(200, {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'});
+      res.end(body);
+      return;
+    }
     if (req.url === '/api/life' && req.method === 'GET') {
       const life = await contract.view('life', {});
       res.writeHead(200, {'Content-Type': 'application/json', 'Cache-Control': 'no-store'});

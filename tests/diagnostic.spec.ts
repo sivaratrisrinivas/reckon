@@ -12,3 +12,15 @@ test('recorded diagnostic discloses the failed model response and provides evide
   expect(evidence.choice.finish_reason).toBe('length');
   expect(evidence.choice.message.content).toBeNull();
 });
+
+test('latest probe reports an unavailable response without presenting a prediction', async ({ page }) => {
+  await page.route('**/api/diagnostic/latest', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({status: 'unavailable', started_at: '2026-11-12T22:00:00Z', reason: 'Provider timed out'}),
+  }));
+  await page.goto('/diagnostic');
+  await expect(page.getByRole('status')).toContainText('Provider timed out');
+  await expect(page.getByText('No prediction was created.')).toBeVisible();
+  await expect(page.getByRole('link', {name: 'View latest probe evidence (JSON)'})).toBeVisible();
+});

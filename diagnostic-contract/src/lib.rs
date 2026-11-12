@@ -5,17 +5,26 @@ use near_sdk::{env, near, AccountId, Gas, NearToken, Promise};
 #[derive(Default)]
 pub struct Diagnostic {
     last_callback: Option<String>,
+    pending: Option<String>,
 }
 
 #[near]
 impl Diagnostic {
-    pub fn request(&mut self) -> Promise {
+    #[init(ignore_state)]
+    pub fn reset() -> Self {
         assert_eq!(env::predecessor_account_id(), env::current_account_id());
+        Self::default()
+    }
+
+    pub fn request(&mut self, nonce: String) -> Promise {
+        assert_eq!(env::predecessor_account_id(), env::current_account_id());
+        assert!(!nonce.is_empty() && nonce.len() <= 64);
         self.last_callback = None;
+        self.pending = Some(nonce.clone());
         let args = serde_json::json!({
             "receiver_id": env::current_account_id(),
             "asset_ids": ["wrap.near"],
-            "msg": "reckon-diagnostic",
+            "msg": nonce,
             "resource_limits": null
         });
         Promise::new("price-oracle.testnet".parse::<AccountId>().unwrap()).function_call(
@@ -32,8 +41,9 @@ impl Diagnostic {
             "price-oracle.testnet"
         );
         assert_eq!(sender_id, env::current_account_id());
-        assert_eq!(msg, "reckon-diagnostic");
-        self.last_callback = Some(serde_json::json!({"data": data, "callback_block_timestamp_ns": env::block_timestamp().to_string()}).to_string());
+        assert_eq!(self.pending.as_deref(), Some(msg.as_str()));
+        self.pending = None;
+        self.last_callback = Some(serde_json::json!({"nonce": msg, "data": data, "callback_block_timestamp_ns": env::block_timestamp().to_string()}).to_string());
     }
 
     pub fn callback(&self) -> Option<String> {
