@@ -7,6 +7,8 @@ use uint::construct_uint;
 
 construct_uint! { struct U256(4); }
 
+const LIVE_IDLE_LIFE_NS: u64 = 15 * 24 * 60 * 60 * 1_000_000_000;
+
 /// The internal accounting is independent of the account's physical balance.
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
@@ -34,6 +36,15 @@ pub struct Life {
 
 #[near]
 impl Reckon {
+    #[init]
+    pub fn new_live(initial_bankroll: U128, operational_reserve: U128) -> Self {
+        Self::new(
+            initial_bankroll,
+            operational_reserve,
+            U64(LIVE_IDLE_LIFE_NS),
+        )
+    }
+
     #[init]
     pub fn new(initial_bankroll: U128, operational_reserve: U128, idle_life_ns: U64) -> Self {
         require!(

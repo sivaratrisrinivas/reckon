@@ -1,0 +1,40 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEAR_SANDBOX_BIN_PATH: '1'
+      NEAR_SANDBOX_BINARY_PATH: ${{ github.workspace }}/.local/sandbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.13.0
+          cache: npm
+      - name: Install Rust and WebAssembly target
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt --target wasm32-unknown-unknown
+      - name: Install dependencies and sandbox
+        run: |
+          npm ci --ignore-scripts
+          ./scripts/install-sandbox.sh
+          npx playwright install --with-deps chromium --only-shell
+      - name: Lint and typecheck
+        run: |
+          npm run lint
+          npm run typecheck
+      - name: Build contract
+        run: npm run build:contract
+      - name: Run contract and browser checks
+        run: npm test
+      - name: Audit dependencies
+        run: npm run audit:high

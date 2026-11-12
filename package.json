@@ -10,15 +10,29 @@
     "start": "tsx service.ts",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:contract && playwright test",
-    "test:contract": "tsx tests/contract.ts"
+    "test:contract": "tsx tests/contract.ts",
+    "prestart": "sh scripts/check-local.sh",
+    "pretest": "sh scripts/check-local.sh",
+    "pretest:contract": "sh scripts/check-local.sh",
+    "build:contract": "cargo build --manifest-path contract/Cargo.toml --release --target wasm32-unknown-unknown --locked",
+    "lint": "eslint . && cargo fmt --manifest-path contract/Cargo.toml --check",
+    "audit:high": "npm audit --audit-level=high"
   },
   "dependencies": {
     "near-workspaces": "5.0.0",
     "tsx": "4.21.0"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@playwright/test": "1.65.0",
     "@types/node": "25.2.3",
-    "typescript": "5.9.3"
+    "eslint": "10.14.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.2"
+  },
+  "overrides": {
+    "near-sandbox": {
+      "tar": "7.5.23"
+    }
   }
 }

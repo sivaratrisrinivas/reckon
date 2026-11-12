@@ -29,5 +29,20 @@ try {
   await root.call(tiny, 'accrue', {});
   await root.transfer(tiny, 10n ** 24n);
   assert.equal((await tiny.view<{dead:boolean}>('life')).dead, true, 'transfers cannot revive the agent');
-  console.log('Contract initialization, transfer, fractional upkeep, and death checks passed');
+  const live = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
+    initialBalance: 20n * 10n ** 24n,
+    method: 'new_live',
+    args: {initial_bankroll: '15000000000000000000000000', operational_reserve: '5000000000000000000000000'},
+  });
+  const initialLive = await live.view<{idle_life_ns:string; remaining_life_ns:string}>('life');
+  const fifteenDays = 1_296_000_000_000_000n;
+  assert.equal(BigInt(initialLive.idle_life_ns), fifteenDays);
+  assert(BigInt(initialLive.remaining_life_ns) > fifteenDays - 60_000_000_000n, 'live agent begins with close to fifteen days of life');
+  await worker.provider.fastForward(300);
+  const liveAfter = await live.view<{remaining_life_ns:string; retired_bankroll:string; spendable_bankroll:string}>('life');
+  const elapsed = fifteenDays - BigInt(liveAfter.remaining_life_ns);
+  assert(elapsed > 0n, 'live upkeep projects time without a mutation');
+  assert.equal(BigInt(liveAfter.retired_bankroll), 15n * 10n ** 24n * elapsed / fifteenDays, 'live upkeep follows the fifteen-day rate');
+  assert.equal(BigInt(liveAfter.retired_bankroll) + BigInt(liveAfter.spendable_bankroll), 15n * 10n ** 24n);
+  console.log('Contract initialization, transfer, fractional upkeep, death, and fifteen-day live rate checks passed');
 } finally { await worker.tearDown(); }
