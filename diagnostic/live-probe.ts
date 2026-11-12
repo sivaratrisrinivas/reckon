@@ -11,8 +11,9 @@ const SYSTEM = 'Return a structured judgment using only the supplied evidence. C
 const FORMAT = {type: 'json_schema', json_schema: {name: 'forecast', strict: true, schema: {type: 'object', properties: {decision: {type: 'string', enum: ['yes', 'no', 'abstain']}, confidence: {type: ['number', 'null']}, justification: {type: 'string'}}, required: ['decision', 'confidence', 'justification'], additionalProperties: false}}};
 
 function object(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
-async function json(url: string, body?: unknown, headers: Record<string, string> = {}, timeoutMs = 30_000): Promise<unknown> {
+async function json(url: string, body?: unknown, headers: Record<string, string> = {}, timeoutMs = 30_000, onResponse?: (response: Response) => void): Promise<unknown> {
   const response = await fetch(url, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type': 'application/json', ...headers}, ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal: AbortSignal.timeout(timeoutMs)});
+  onResponse?.(response);
   if (!response.ok) throw new Error(`Provider returned HTTP ${response.status}`);
   return response.json();
 }
@@ -67,7 +68,8 @@ async function main() {
     }
     if (!object(callback) || callback.nonce !== nonce || typeof callback.callback_block_timestamp_ns !== 'string' || !/^\d+$/.test(callback.callback_block_timestamp_ns) || BigInt(callback.callback_block_timestamp_ns) < BigInt(started) * 1_000_000n) throw new Error('Oracle callback missing, mismatched or older than request');
     outcome.callback_observed_elapsed_ms = Date.now() - started;
-    const report = validateOracleReport(callback.data, Date.now(), 300_000);
+    // Diagnostic-only bound: provider cache allowance plus elapsed time since its response.
+    const report = validateOracleReport(callback.data, Date.now(), 600_000);
     if (!report.ok) throw new Error(report.reason);
     const now = Math.floor(Date.now() / 1000);
     const candles = await json(`https://api.coinbase.com/api/v3/brokerage/market/products/NEAR-USD/candles?start=${now - 600}&end=${now}&granularity=ONE_MINUTE&limit=10`);
@@ -79,14 +81,16 @@ async function main() {
       return low > 0 && low <= open && open <= high && low <= close && close <= high;
     });
     completed.sort((a: {start: string}, b: {start: string}) => Number(b.start) - Number(a.start));
-    if (!completed.length || now - (Number(completed[0].start) + 60) > 180) throw new Error('Completed candles unavailable or stale');
+    if (!completed.length || Math.floor(Date.now() / 1000) - (Number(completed[0].start) + 60) > 180) throw new Error('Completed candles unavailable or stale');
+    const reportAtInference = validateOracleReport(callback.data, Date.now(), 600_000);
+    if (!reportAtInference.ok) throw new Error(reportAtInference.reason);
     const comparison = comparePrices(report.value.multiplier, report.value.decimals, completed[0].close);
-    const evidence = {candles_provider: 'Coinbase NEAR-USD ONE_MINUTE', candles_fetched_at: new Date().toISOString(), completed_candles: completed, oracle_provider: 'price-oracle.testnet', oracle_callback: callback, oracle_report_validation: report.value, comparison, question_and_rules: QUESTION};
+    const evidence = {candles_provider: 'Coinbase NEAR-USD ONE_MINUTE', candles_fetched_at: new Date().toISOString(), completed_candles: completed, oracle_provider: 'price-oracle.testnet', oracle_callback: callback, oracle_report_validation: reportAtInference.value, diagnostic_max_provider_report_age_ms: 600_000, comparison, question_and_rules: QUESTION};
     outcome.evidence = evidence;
     const requestStarted = Date.now();
     modelStarted = requestStarted;
     outcome.model_request = {model, system_prompt: SYSTEM, response_format: FORMAT, max_tokens: 512};
-    const modelResult = await json('https://cloud-api.near.ai/v1/chat/completions', {model, messages: [{role: 'system', content: SYSTEM}, {role: 'user', content: JSON.stringify(evidence)}], response_format: FORMAT, max_tokens: 512}, {Authorization: `Bearer ${key}`});
+    const modelResult = await json('https://cloud-api.near.ai/v1/chat/completions', {model, messages: [{role: 'system', content: SYSTEM}, {role: 'user', content: JSON.stringify(evidence)}], response_format: FORMAT, max_tokens: 512}, {Authorization: `Bearer ${key}`}, 30_000, response => { outcome.model_request_id = response.headers.get('x-request-id'); });
     outcome.model_latency_ms = Date.now() - requestStarted;
     if (object(modelResult)) {
       outcome.model_returned = modelResult.model ?? null;
@@ -99,6 +103,10 @@ async function main() {
     if (!object(modelResult) || modelResult.model !== model || !Array.isArray(modelResult.choices) || !object(modelResult.choices[0]) || !object(modelResult.choices[0].message) || modelResult.choices[0].finish_reason !== 'stop') throw new Error('Model response incomplete or model identity differs');
     const validated = validateModel(modelResult.choices[0].message.content);
     if (!validated.ok) throw new Error(validated.reason);
+    const reportAtCompletion = validateOracleReport(callback.data, Date.now(), 600_000);
+    if (!reportAtCompletion.ok) throw new Error(reportAtCompletion.reason);
+    if (Math.floor(Date.now() / 1000) - (Number(completed[0].start) + 60) > 180) throw new Error('Completed candles became stale during inference');
+    outcome.oracle_report_validation_at_completion = reportAtCompletion.value;
     outcome.model = model;
     outcome.model_usage = modelResult.usage ?? null;
     outcome.model_response = validated.value;

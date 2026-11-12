@@ -5,15 +5,26 @@ import { comparePrices, validateModel, validateOracleReport } from '../diagnosti
 const evidence = JSON.parse(await readFile('docs/evidence/model-attempt-instruct.json', 'utf8'));
 const abstention = JSON.parse(await readFile('docs/evidence/model-abstention.json', 'utf8'));
 const samples = JSON.parse(await readFile('docs/evidence/testnet-latency-cost-samples.json', 'utf8'));
+const finalProbe = JSON.parse(await readFile('docs/evidence/freshness-final.json', 'utf8'));
 const reference = { timestamp: evidence.evidence.reference_report_timestamp_ns, recency_duration_sec: 300, prices: [evidence.evidence.reference] };
 const nowMs = evidence.evidence.fetched_at_unix * 1000;
-const report = validateOracleReport(reference, nowMs, 300_000);
+const report = validateOracleReport(reference, nowMs, 600_000);
 assert.equal(report.ok, true);
-if (report.ok) assert.equal(report.value.externalObservationTimeVerified, false);
-assert.equal(validateOracleReport(reference, nowMs + 301_000, 300_000).ok, false);
-assert.equal(validateOracleReport({...reference, prices: [{asset_id: 'wrap.near', price: null}]}, nowMs, 300_000).ok, false);
-assert.equal(validateOracleReport({...reference, prices: [{asset_id: 'wrong', price: evidence.evidence.reference.price}]}, nowMs, 300_000).ok, false);
-assert.equal(validateOracleReport(null, nowMs, 300_000).ok, false);
+if (report.ok) {
+  assert.equal(report.value.externalObservationTimeVerified, false);
+  assert.equal(report.value.responseTimestampNs, reference.timestamp);
+  assert.equal('reportTimestampNs' in report.value, false);
+}
+// The response timestamp can be new even when the provider's cached report is 300 seconds old.
+assert.equal(validateOracleReport(reference, nowMs, 300_000).ok, false);
+const exactlyCurrent = {...reference, timestamp: String(BigInt(nowMs) * 1_000_000n)};
+assert.equal(validateOracleReport(exactlyCurrent, nowMs, 300_000).ok, true);
+assert.equal(validateOracleReport(exactlyCurrent, nowMs + 1, 300_000).ok, false);
+assert.equal(validateOracleReport({...reference, recency_duration_sec: 601}, nowMs, 600_000).ok, false);
+assert.equal(validateOracleReport(reference, nowMs + 301_000, 600_000).ok, false);
+assert.equal(validateOracleReport({...reference, prices: [{asset_id: 'wrap.near', price: null}]}, nowMs, 600_000).ok, false);
+assert.equal(validateOracleReport({...reference, prices: [{asset_id: 'wrong', price: evidence.evidence.reference.price}]}, nowMs, 600_000).ok, false);
+assert.equal(validateOracleReport(null, nowMs, 600_000).ok, false);
 assert.equal(validateModel(evidence.choice.message.content).ok, true);
 assert.equal(validateModel(null).ok, false);
 assert.equal(validateModel('{').ok, false);
@@ -27,6 +38,10 @@ assert(independentAbstention.ok && independentAbstention.value.decision === 'abs
 assert.equal(samples.length, 3);
 assert.equal(samples[0].net_account_decrease_yoctonear, '2883554820729300000000');
 assert.equal(BigInt(samples[0].account_before.amount_yoctonear) - BigInt(samples[0].account_after.amount_yoctonear), 2883554820729300000000n);
+assert.equal(finalProbe.status, 'observed');
+assert.equal(finalProbe.evidence.oracle_report_validation.externalObservationTimeVerified, false);
+assert.equal(finalProbe.oracle_report_validation_at_completion.externalObservationTimeVerified, false);
+assert.equal('reportTimestampNs' in finalProbe.oracle_report_validation_at_completion, false);
 assert.deepEqual(comparePrices('340546666', 8, '3.3994'), {reference_usd: '3.40546666', latest_candle_close_usd: '3.39940000', reference_minus_candle_usd: '0.00606666'});
 assert.equal(comparePrices('340000000', 8, '3.41').reference_minus_candle_usd, '-0.01000000');
 console.log('Oracle and structured model validation checks passed');

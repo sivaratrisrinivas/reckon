@@ -44,6 +44,8 @@ When a separate synthetic missing-data request constrained the schema itself to 
 
 The NEAR Builders dashboard displayed "usage unavailable" for the claimed credit key when checked on 13 November 2026 (IST). The individual provider charges therefore remain unverified; the token-price calculations above are estimates, and the timed-out request may also have incurred a charge.
 
+The [NEAR AI compatibility guide](https://docs.near.ai/cloud/guides/openai-compatibility) documents an `X-Request-Id` response header for support. New diagnostic runs record that opaque request ID when the provider returns one, including HTTP error responses. It can help identify a request when asking the provider about usage; it is not a billing receipt and is absent if no response arrives.
+
 ## Independent abstention and latency samples: 13 November 2026 IST
 
 An authenticated `Qwen/Qwen3-VL-30B-A3B-Instruct` request used a reworded version of the binary question and settlement rules with explicitly synthetic missing candles and reference. The JSON schema offered all three choices (`yes`, `no`, and `abstain`) and permitted a number or null for confidence. The recorded response chose `abstain` with null confidence and a nonempty justification; the diagnostic validator accepted it. It returned in 1.659 seconds, with 161 input and 103 output tokens. This is one recorded abstention under deliberately missing inputs, not a reliability or calibration measurement. The request, structured response, usage and timing are recorded in `docs/evidence/model-abstention.json`; the snapshot does not independently prove the provider executed the request.
