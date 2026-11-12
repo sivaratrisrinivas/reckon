@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { validateModel, validateReference } from '../diagnostic/validate.js';
+
+const evidence = JSON.parse(await readFile('docs/evidence/model-attempt-instruct.json', 'utf8'));
+const reference = { timestamp: evidence.evidence.reference_report_timestamp_ns, recency_duration_sec: 300, prices: [evidence.evidence.reference] };
+const nowMs = evidence.evidence.fetched_at_unix * 1000;
+assert.equal(validateReference(reference, nowMs, 300_000).ok, true);
+assert.equal(validateReference(reference, nowMs + 301_000, 300_000).ok, false);
+assert.equal(validateReference({...reference, prices: [{asset_id: 'wrap.near', price: null}]}, nowMs, 300_000).ok, false);
+assert.equal(validateReference({...reference, prices: [{asset_id: 'wrong', price: evidence.evidence.reference.price}]}, nowMs, 300_000).ok, false);
+assert.equal(validateReference(null, nowMs, 300_000).ok, false);
+assert.equal(validateModel(evidence.choice.message.content).ok, true);
+assert.equal(validateModel(null).ok, false);
+assert.equal(validateModel('{').ok, false);
+assert.equal(validateModel('{"decision":"abstain","confidence":0,"justification":"No data"}').ok, false);
+assert.equal(validateModel('{"decision":"abstain","confidence":null,"justification":"No data"}').ok, true);
+console.log('Oracle and structured model validation checks passed');

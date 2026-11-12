@@ -13,6 +13,9 @@ const files: Record<string, [string, string]> = {
   '/': ['public/index.html', 'text/html; charset=utf-8'],
   '/app.js': ['public/app.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['public/style.css', 'text/css; charset=utf-8'],
+  '/diagnostic': ['public/diagnostic.html', 'text/html; charset=utf-8'],
+  '/diagnostic-evidence.json': ['docs/evidence/model-attempt-1.json', 'application/json; charset=utf-8'],
+  '/diagnostic-instruct-evidence.json': ['docs/evidence/model-attempt-instruct.json', 'application/json; charset=utf-8'],
 };
 const server = createServer(async (req, res) => {
   try {

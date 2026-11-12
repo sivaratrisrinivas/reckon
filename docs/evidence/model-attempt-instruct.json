@@ -1,0 +1,101 @@
+{
+  "evidence": {
+    "candles_provider": "Coinbase NEAR-USD ONE_MINUTE",
+    "fetched_at_unix": 1794523889,
+    "completed_candles": [
+      {
+        "start": "1794523800",
+        "low": "3.3994",
+        "high": "3.3994",
+        "open": "3.3994",
+        "close": "3.3994",
+        "volume": "1.18"
+      },
+      {
+        "start": "1794523740",
+        "low": "3.398",
+        "high": "3.3995",
+        "open": "3.3995",
+        "close": "3.398",
+        "volume": "5293.524"
+      },
+      {
+        "start": "1794523680",
+        "low": "3.401",
+        "high": "3.403",
+        "open": "3.401",
+        "close": "3.403",
+        "volume": "352.593"
+      },
+      {
+        "start": "1794523620",
+        "low": "3.4013",
+        "high": "3.4016",
+        "open": "3.4013",
+        "close": "3.4016",
+        "volume": "94.226"
+      },
+      {
+        "start": "1794523560",
+        "low": "3.4037",
+        "high": "3.4043",
+        "open": "3.4038",
+        "close": "3.4037",
+        "volume": "7.368"
+      },
+      {
+        "start": "1794523440",
+        "low": "3.4006",
+        "high": "3.4006",
+        "open": "3.4006",
+        "close": "3.4006",
+        "volume": "1.455"
+      },
+      {
+        "start": "1794523380",
+        "low": "3.4009",
+        "high": "3.4009",
+        "open": "3.4009",
+        "close": "3.4009",
+        "volume": "24.052"
+      },
+      {
+        "start": "1794523320",
+        "low": "3.4003",
+        "high": "3.4025",
+        "open": "3.4003",
+        "close": "3.4014",
+        "volume": "5425.367"
+      }
+    ],
+    "reference_provider": "price-oracle.testnet",
+    "reference": {
+      "asset_id": "wrap.near",
+      "price": {
+        "multiplier": "340546666",
+        "decimals": 8
+      }
+    },
+    "reference_report_timestamp_ns": "1794523877998383730",
+    "callback_block_timestamp_ns": "1794523878601291947",
+    "warning": "Oracle report timestamp is not proof of external observation time."
+  },
+  "question_and_rules": "Will the NEAR/USD settlement price be strictly above the reference price? The prediction deadline is five minutes after publication. Settlement uses the first successful valid oracle request initiated after the deadline and completed within a bounded settlement window. Caller timing and provider caching affect the observation; it is not an exact historical expiry price. Equal prices resolve to no. If no valid result arrives in the window, the prediction is void.",
+  "model_requested": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  "model_returned": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  "latency_seconds": 1.953,
+  "usage": {
+    "prompt_tokens": 851,
+    "total_tokens": 1007,
+    "completion_tokens": 156
+  },
+  "choice": {
+    "index": 0,
+    "message": {
+      "role": "assistant",
+      "content": "{\"decision\": \"no\", \"confidence\": 0.85, \"justification\": \"The reference price is 3.40546666 (from multiplier 340546666 with 8 decimals). The last completed candle (start: 1794523800) has a close price of 3.3994, which is below the reference price. Since the settlement price is determined by the first valid oracle request after the deadline, and the most recent available candle is below the reference price, the settlement price is unlikely to be strictly above the reference price. The evidence suggests the settlement price will not exceed the reference price, leading to a 'no' outcome.\"}"
+    },
+    "finish_reason": "stop",
+    "logprobs": null
+  }
+}

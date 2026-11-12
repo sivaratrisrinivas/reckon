@@ -19,6 +19,8 @@ Open http://127.0.0.1:4389. The service starts a new sandbox and initializes a f
 
 The local agent begins with 100 NEAR spendable and a separate 20 NEAR operational reserve. Its initial idle life is accelerated to 15 minutes. The contract’s `new_live` initializer fixes the live idle rate at fifteen days; it has not been deployed to testnet. Upkeep is a configured rule, not an invoice, and retired funds remain on the account but cannot be used for new stakes. The reserve covers operational and storage needs; it is not agent bankroll. Direct transfers do not increase usable bankroll. A life view projects costs through the latest chain block, so it advances with sandbox blocks, not a separate browser clock.
 
+The [integration diagnostic](http://127.0.0.1:4389/diagnostic) displays recorded testnet oracle and model observations. It does not run a new live probe or enable wagering. The scratch contract in `diagnostic-contract/` exists only to inspect the testnet oracle callback; it is not suitable for custody or production settlement. Its paid testnet transaction and limitations are recorded in `docs/research/price-settlement-feasibility.md`. The observed model responses and limits are recorded in `docs/research/market-data-and-model-feasibility.md`.
+
 ## Verify
 
 After the build above, install Chromium and its Linux system dependencies, then run the checks. The `--with-deps` step may require administrator privileges:
