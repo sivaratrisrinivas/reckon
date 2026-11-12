@@ -1,0 +1,65 @@
+{
+  "case": "synthetic missing candles and reference; all three choices remain available",
+  "started_at_unix": 1794525831.819232,
+  "request": {
+    "model": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are performing a technical diagnostic, not publishing a forecast. Choose yes, no, or abstain based on the evidence. If you abstain, confidence must be null; confidence is a probability only when choosing yes or no. Do not fabricate missing prices or market history."
+      },
+      {
+        "role": "user",
+        "content": "{\"question_and_rules\": \"Will the NEAR/USD settlement price be strictly above the reference price? The deadline is five minutes after publication. The settlement is the first successful valid oracle request initiated after the deadline and completed within a bounded window; caller timing and caching affect it. Equality means no. Missing valid settlement data produces a void.\", \"evidence\": {\"candles\": null, \"reference_price\": null, \"provider_status\": \"unavailable\"}}"
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "forecast",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "decision": {
+              "type": "string",
+              "enum": [
+                "yes",
+                "no",
+                "abstain"
+              ]
+            },
+            "confidence": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Use null for abstain; probability for yes or no."
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "decision",
+            "confidence",
+            "justification"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "max_tokens": 512
+  },
+  "status": "valid",
+  "latency_ms": 1659,
+  "model_returned": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  "usage": {
+    "prompt_tokens": 161,
+    "total_tokens": 264,
+    "completion_tokens": 103
+  },
+  "finish_reason": "stop",
+  "response_content": "{\"decision\": \"abstain\", \"confidence\": null, \"justification\": \"The evidence indicates that both the candles and reference price are null, and the provider status is unavailable. Without a valid reference price or market data, it is impossible to determine whether the settlement price will be strictly above the reference price. Additionally, the settlement depends on a valid oracle request after the deadline, which cannot be assessed given the missing data. Therefore, confidence is null, and the decision is to abstain.\"}",
+  "independent_abstention": true
+}

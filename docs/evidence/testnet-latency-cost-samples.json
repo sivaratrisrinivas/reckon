@@ -1,0 +1,110 @@
+[
+  {
+    "started_at": "2026-11-12T23:24:14.842Z",
+    "status": "observed",
+    "reason": null,
+    "oracle_transaction": "F5MyEgGM8Gk8qRzhjLiB2BufVCxy2wRXnniU8sctxWuM",
+    "oracle_elapsed_ms": 13506,
+    "callback_observed_elapsed_ms": 17286,
+    "oracle_fee_near": "0.0015930547207293",
+    "oracle_worker": {
+      "success": true,
+      "payment_charged": "1290500100000000000000",
+      "payment_refunded": "18709499900000000000000",
+      "resources_used": {
+        "instructions": 1007782,
+        "time_ms": 2905,
+        "compile_time_ms": null
+      }
+    },
+    "model_returned": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "model_latency_ms": 1876,
+    "model_usage": {
+      "prompt_tokens": 882,
+      "total_tokens": 1038,
+      "completion_tokens": 156,
+      "prompt_tokens_details": {
+        "cached_tokens": 64
+      }
+    },
+    "model_finish_reason": "stop",
+    "process_elapsed_ms": 20390,
+    "account_before": {
+      "block_height": 277430337,
+      "amount_yoctonear": "9978799452629911400000000",
+      "storage_usage_bytes": 210115
+    },
+    "account_after": {
+      "block_height": 277430380,
+      "amount_yoctonear": "9975915897809182100000000",
+      "storage_usage_bytes": 210115
+    },
+    "net_account_decrease_yoctonear": "2883554820729300000000"
+  },
+  {
+    "started_at": "2026-11-12T23:24:42.546Z",
+    "status": "observed",
+    "reason": null,
+    "oracle_transaction": "HK42rB7EXmMDNsjqgj9DFa3STBYFmFe4tx37aebSD7Gw",
+    "oracle_elapsed_ms": 5796,
+    "callback_observed_elapsed_ms": 9764,
+    "oracle_fee_near": "0.0005918088195686",
+    "oracle_worker": null,
+    "model_returned": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "model_latency_ms": 1636,
+    "model_usage": {
+      "prompt_tokens": 884,
+      "total_tokens": 994,
+      "completion_tokens": 110,
+      "prompt_tokens_details": {
+        "cached_tokens": 64
+      }
+    },
+    "model_finish_reason": "stop",
+    "process_elapsed_ms": 12169,
+    "account_before": {
+      "block_height": 277430387,
+      "amount_yoctonear": "9975915897809182100000000",
+      "storage_usage_bytes": 210115
+    },
+    "account_after": {
+      "block_height": 277430413,
+      "amount_yoctonear": "9975324088989613500000000",
+      "storage_usage_bytes": 210115
+    },
+    "net_account_decrease_yoctonear": "591808819568600000000"
+  },
+  {
+    "started_at": "2026-11-12T23:25:01.440Z",
+    "status": "observed",
+    "reason": null,
+    "oracle_transaction": "6DJcnhgf2KQcoGX1HHRcrhhcpEhJinmfLCiycsTyWtfc",
+    "oracle_elapsed_ms": 5599,
+    "callback_observed_elapsed_ms": 8967,
+    "oracle_fee_near": "0.0005918088195686",
+    "oracle_worker": null,
+    "model_returned": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "model_latency_ms": 1694,
+    "model_usage": {
+      "prompt_tokens": 943,
+      "total_tokens": 1071,
+      "completion_tokens": 128,
+      "prompt_tokens_details": {
+        "cached_tokens": 64
+      }
+    },
+    "model_finish_reason": "stop",
+    "process_elapsed_ms": 11341,
+    "account_before": {
+      "block_height": 277430418,
+      "amount_yoctonear": "9975324088989613500000000",
+      "storage_usage_bytes": 210115
+    },
+    "account_after": {
+      "block_height": 277430443,
+      "amount_yoctonear": "9974732280170044900000000",
+      "storage_usage_bytes": 210115
+    },
+    "net_account_decrease_yoctonear": "591808819568600000000"
+  }
+]

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { comparePrices, validateModel, validateOracleReport } from '../diagnostic/validate.js';
 
 const evidence = JSON.parse(await readFile('docs/evidence/model-attempt-instruct.json', 'utf8'));
+const abstention = JSON.parse(await readFile('docs/evidence/model-abstention.json', 'utf8'));
 const reference = { timestamp: evidence.evidence.reference_report_timestamp_ns, recency_duration_sec: 300, prices: [evidence.evidence.reference] };
 const nowMs = evidence.evidence.fetched_at_unix * 1000;
 const report = validateOracleReport(reference, nowMs, 300_000);
@@ -17,6 +18,9 @@ assert.equal(validateModel(null).ok, false);
 assert.equal(validateModel('{').ok, false);
 assert.equal(validateModel('{"decision":"abstain","confidence":0,"justification":"No data"}').ok, false);
 assert.equal(validateModel('{"decision":"abstain","confidence":null,"justification":"No data"}').ok, true);
+assert.deepEqual(abstention.request.response_format.json_schema.schema.properties.decision.enum, ['yes', 'no', 'abstain']);
+const independentAbstention = validateModel(abstention.response_content);
+assert(independentAbstention.ok && independentAbstention.value.decision === 'abstain');
 assert.deepEqual(comparePrices('340546666', 8, '3.3994'), {reference_usd: '3.40546666', latest_candle_close_usd: '3.39940000', reference_minus_candle_usd: '0.00606666'});
 assert.equal(comparePrices('340000000', 8, '3.41').reference_minus_candle_usd, '-0.01000000');
 console.log('Oracle and structured model validation checks passed');
