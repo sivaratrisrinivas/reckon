@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, open, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { validateModel, validateOracleReport } from './validate.js';
+import { comparePrices, validateModel, validateOracleReport } from './validate.js';
 
 const exec = promisify(execFile);
 const RPC = 'https://rpc.testnet.near.org';
@@ -11,8 +11,8 @@ const SYSTEM = 'Return a structured judgment using only the supplied evidence. C
 const FORMAT = {type: 'json_schema', json_schema: {name: 'forecast', strict: true, schema: {type: 'object', properties: {decision: {type: 'string', enum: ['yes', 'no', 'abstain']}, confidence: {type: ['number', 'null']}, justification: {type: 'string'}}, required: ['decision', 'confidence', 'justification'], additionalProperties: false}}};
 
 function object(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
-async function json(url: string, body?: unknown, headers: Record<string, string> = {}): Promise<unknown> {
-  const response = await fetch(url, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type': 'application/json', ...headers}, ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal: AbortSignal.timeout(30_000)});
+async function json(url: string, body?: unknown, headers: Record<string, string> = {}, timeoutMs = 30_000): Promise<unknown> {
+  const response = await fetch(url, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type': 'application/json', ...headers}, ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal: AbortSignal.timeout(timeoutMs)});
   if (!response.ok) throw new Error(`Provider returned HTTP ${response.status}`);
   return response.json();
 }
@@ -55,21 +55,33 @@ async function main() {
         }
       } catch { /* A malformed event does not establish a cost. */ }
     }
-    const rpc = await json(RPC, {jsonrpc: '2.0', id: 'diagnostic', method: 'query', params: {request_type: 'call_function', finality: 'final', account_id: account, method_name: 'callback', args_base64: 'e30='}});
-    if (!object(rpc) || !object(rpc.result) || !Array.isArray(rpc.result.result) || !rpc.result.result.every((v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 255)) throw new Error('Oracle callback unavailable');
-    const encoded: unknown = JSON.parse(Buffer.from(rpc.result.result).toString('utf8'));
-    if (typeof encoded !== 'string') throw new Error('Oracle callback unavailable');
-    const callback: unknown = JSON.parse(encoded);
+    let callback: unknown;
+    const deadline = Math.min(started + 120_000, Date.now() + 60_000);
+    while (Date.now() < deadline) {
+      const rpc = await json(RPC, {jsonrpc: '2.0', id: 'diagnostic', method: 'query', params: {request_type: 'call_function', finality: 'final', account_id: account, method_name: 'callback', args_base64: 'e30='}}, {}, Math.max(1, Math.min(30_000, deadline - Date.now())));
+      if (!object(rpc) || !object(rpc.result) || !Array.isArray(rpc.result.result) || !rpc.result.result.every((v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 255)) throw new Error('Oracle callback unavailable');
+      const encoded: unknown = JSON.parse(Buffer.from(rpc.result.result).toString('utf8'));
+      callback = typeof encoded === 'string' ? JSON.parse(encoded) : null;
+      if (object(callback) && callback.nonce === nonce) break;
+      await new Promise(resolve => setTimeout(resolve, Math.max(0, Math.min(1_000, deadline - Date.now()))));
+    }
     if (!object(callback) || callback.nonce !== nonce || typeof callback.callback_block_timestamp_ns !== 'string' || !/^\d+$/.test(callback.callback_block_timestamp_ns) || BigInt(callback.callback_block_timestamp_ns) < BigInt(started) * 1_000_000n) throw new Error('Oracle callback missing, mismatched or older than request');
+    outcome.callback_observed_elapsed_ms = Date.now() - started;
     const report = validateOracleReport(callback.data, Date.now(), 300_000);
     if (!report.ok) throw new Error(report.reason);
     const now = Math.floor(Date.now() / 1000);
     const candles = await json(`https://api.coinbase.com/api/v3/brokerage/market/products/NEAR-USD/candles?start=${now - 600}&end=${now}&granularity=ONE_MINUTE&limit=10`);
     if (!object(candles) || !Array.isArray(candles.candles)) throw new Error('Candle response malformed');
-    const completed = candles.candles.filter((v: unknown) => object(v) && typeof v.start === 'string' && /^\d+$/.test(v.start) && Number(v.start) + 60 <= now && ['open', 'high', 'low', 'close', 'volume'].every(k => typeof v[k] === 'string' && Number.isFinite(Number(v[k])) && Number(v[k]) >= 0));
+    const completed = candles.candles.filter((v: unknown) => {
+      if (!object(v) || typeof v.start !== 'string' || !/^\d+$/.test(v.start) || !Number.isSafeInteger(Number(v.start)) || Number(v.start) % 60 !== 0 || Number(v.start) + 60 > now) return false;
+      if (!['open', 'high', 'low', 'close', 'volume'].every(k => typeof v[k] === 'string' && /^\d+(\.\d+)?$/.test(v[k]) && Number.isFinite(Number(v[k])))) return false;
+      const open = Number(v.open), high = Number(v.high), low = Number(v.low), close = Number(v.close);
+      return low > 0 && low <= open && open <= high && low <= close && close <= high;
+    });
     completed.sort((a: {start: string}, b: {start: string}) => Number(b.start) - Number(a.start));
     if (!completed.length || now - (Number(completed[0].start) + 60) > 180) throw new Error('Completed candles unavailable or stale');
-    const evidence = {candles_provider: 'Coinbase NEAR-USD ONE_MINUTE', candles_fetched_at: new Date().toISOString(), completed_candles: completed, oracle_provider: 'price-oracle.testnet', oracle_callback: callback, oracle_report_validation: report.value, question_and_rules: QUESTION};
+    const comparison = comparePrices(report.value.multiplier, report.value.decimals, completed[0].close);
+    const evidence = {candles_provider: 'Coinbase NEAR-USD ONE_MINUTE', candles_fetched_at: new Date().toISOString(), completed_candles: completed, oracle_provider: 'price-oracle.testnet', oracle_callback: callback, oracle_report_validation: report.value, comparison, question_and_rules: QUESTION};
     outcome.evidence = evidence;
     const requestStarted = Date.now();
     modelStarted = requestStarted;
@@ -95,9 +107,16 @@ async function main() {
     if (modelStarted !== undefined && outcome.model_latency_ms === undefined) outcome.model_latency_ms = Date.now() - modelStarted;
     outcome.reason = error instanceof Error && error.name === 'TimeoutError' ? 'Provider timed out' : error instanceof Error ? error.message : 'Unknown diagnostic failure';
   }
-  const path = `.local/diagnostic-runs/${started}.json`;
-  try { await writeFile(path, JSON.stringify(outcome, null, 2) + '\n', {mode: 0o600, flag: 'wx'}); }
-  finally { await lock.close(); await unlink(lockPath); }
+  const path = `.local/diagnostic-runs/${started}-${nonce}.json`;
+  const partial = `.local/diagnostic-runs/.partial-${nonce}`;
+  try {
+    await writeFile(partial, JSON.stringify(outcome, null, 2) + '\n', {mode: 0o600, flag: 'wx'});
+    await rename(partial, path);
+  } finally {
+    await unlink(partial).catch(() => {});
+    await lock.close();
+    await unlink(lockPath);
+  }
   console.log(`Diagnostic ${outcome.status}; evidence: ${path}`);
   if (outcome.status !== 'observed') { console.error(`Unavailable: ${outcome.reason}`); process.exitCode = 1; }
 }

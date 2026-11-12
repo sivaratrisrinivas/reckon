@@ -1,5 +1,21 @@
 export type Result<T> = { ok: true; value: T } | { ok: false; reason: string };
 
+function decimal(value: bigint, places: number): string {
+  const sign = value < 0n ? '-' : '';
+  const digits = (value < 0n ? -value : value).toString().padStart(places + 1, '0');
+  return places ? `${sign}${digits.slice(0, -places)}.${digits.slice(-places)}` : `${sign}${digits}`;
+}
+
+export function comparePrices(multiplier: string, decimals: number, candleClose: string) {
+  if (!/^\d+(\.\d+)?$/.test(candleClose)) throw new Error('Invalid candle close');
+  const [whole, fraction = ''] = candleClose.split('.');
+  if (fraction.length > 24 || BigInt(whole + fraction) === 0n) throw new Error('Invalid candle close');
+  const places = Math.max(decimals, fraction.length);
+  const reference = BigInt(multiplier) * 10n ** BigInt(places - decimals);
+  const candle = BigInt(whole + fraction) * 10n ** BigInt(places - fraction.length);
+  return {reference_usd: decimal(reference, places), latest_candle_close_usd: decimal(candle, places), reference_minus_candle_usd: decimal(reference - candle, places)};
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -34,7 +34,7 @@ near contract deploy reckon-srinivas-probe-2026.testnet use-file diagnostic-cont
 near contract call-function as-transaction reckon-srinivas-probe-2026.testnet reset json-args '{}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as reckon-srinivas-probe-2026.testnet network-config testnet sign-with-legacy-keychain send
 ```
 
-For another account, replace both occurrences of the account name and use only a disposable testnet account with its own signing key. The local lock prevents concurrent runs on one machine; it does not coordinate different machines.
+For another account, replace both occurrences of the account name and use only a disposable testnet account with its own signing key. The local lock prevents concurrent runs on one machine. The scratch contract also rejects another request while one is pending and permits replacement after 120 seconds. A delayed earlier callback is rejected after replacement. Local evidence files are retained until you choose to remove them.
 
 To rebuild the scratch contract and test rejection of unauthorized calls on the local sandbox, run `npm run test:diagnostic-contract` with the sandbox environment variables configured above. The positive callback was exercised against the real testnet oracle in the recorded transaction; the local authorization test does not reproduce the external oracle service.
 

@@ -22,7 +22,7 @@ const server = createServer(async (req, res) => {
   try {
     if (req.url === '/api/diagnostic/latest' && req.method === 'GET') {
       const names = await readdir('.local/diagnostic-runs').catch(() => []);
-      const latest = names.filter(name => /^\d+\.json$/.test(name)).sort().at(-1);
+      const latest = names.filter(name => /^\d+(?:-[0-9a-f-]+)?\.json$/.test(name)).sort().at(-1);
       if (!latest) { res.writeHead(404).end(); return; }
       const body = await readFile(`.local/diagnostic-runs/${latest}`);
       res.writeHead(200, {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'});

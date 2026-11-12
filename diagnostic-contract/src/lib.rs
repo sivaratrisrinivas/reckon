@@ -6,6 +6,7 @@ use near_sdk::{env, near, AccountId, Gas, NearToken, Promise};
 pub struct Diagnostic {
     last_callback: Option<String>,
     pending: Option<String>,
+    pending_started_ns: Option<u64>,
 }
 
 #[near]
@@ -19,8 +20,15 @@ impl Diagnostic {
     pub fn request(&mut self, nonce: String) -> Promise {
         assert_eq!(env::predecessor_account_id(), env::current_account_id());
         assert!(!nonce.is_empty() && nonce.len() <= 64);
+        if let Some(started) = self.pending_started_ns {
+            assert!(
+                env::block_timestamp().saturating_sub(started) >= 120_000_000_000,
+                "A diagnostic request is still pending"
+            );
+        }
         self.last_callback = None;
         self.pending = Some(nonce.clone());
+        self.pending_started_ns = Some(env::block_timestamp());
         let args = serde_json::json!({
             "receiver_id": env::current_account_id(),
             "asset_ids": ["wrap.near"],
@@ -43,6 +51,7 @@ impl Diagnostic {
         assert_eq!(sender_id, env::current_account_id());
         assert_eq!(self.pending.as_deref(), Some(msg.as_str()));
         self.pending = None;
+        self.pending_started_ns = None;
         self.last_callback = Some(serde_json::json!({"nonce": msg, "data": data, "callback_block_timestamp_ns": env::block_timestamp().to_string()}).to_string());
     }
 

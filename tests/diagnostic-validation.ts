@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { validateModel, validateOracleReport } from '../diagnostic/validate.js';
+import { comparePrices, validateModel, validateOracleReport } from '../diagnostic/validate.js';
 
 const evidence = JSON.parse(await readFile('docs/evidence/model-attempt-instruct.json', 'utf8'));
 const reference = { timestamp: evidence.evidence.reference_report_timestamp_ns, recency_duration_sec: 300, prices: [evidence.evidence.reference] };
@@ -17,4 +17,6 @@ assert.equal(validateModel(null).ok, false);
 assert.equal(validateModel('{').ok, false);
 assert.equal(validateModel('{"decision":"abstain","confidence":0,"justification":"No data"}').ok, false);
 assert.equal(validateModel('{"decision":"abstain","confidence":null,"justification":"No data"}').ok, true);
+assert.deepEqual(comparePrices('340546666', 8, '3.3994'), {reference_usd: '3.40546666', latest_candle_close_usd: '3.39940000', reference_minus_candle_usd: '0.00606666'});
+assert.equal(comparePrices('340000000', 8, '3.41').reference_minus_candle_usd, '-0.01000000');
 console.log('Oracle and structured model validation checks passed');
