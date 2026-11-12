@@ -1,0 +1,11 @@
+{
+  "transaction": "71XnZ2ZiYkMQSwKi4R2SUHzjntXFqR9Ft3ZaYpv1rwMY",
+  "event": "execution_requested",
+  "event_timestamp_ns": 1794523869339069970,
+  "resource_limits": {
+    "max_instructions": 10000000000,
+    "max_memory_mb": 128,
+    "max_execution_seconds": 60
+  },
+  "note": "Limits reported by this worker request only; not necessarily the limits in later runs."
+}

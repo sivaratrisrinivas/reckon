@@ -21,17 +21,20 @@ function object(value: unknown): value is Record<string, unknown> {
 }
 
 // The response timestamp is the oracle's execution time, not a report or market-observation time.
-export function validateOracleReport(value: unknown, nowMs: number, maxAgeMs: number): Result<{ multiplier: string; decimals: number; responseTimestampNs: string; providerRecencySeconds: number; externalObservationTimeVerified: false }> {
+export function validateOracleReport(value: unknown, nowMs: number, maxAgeMs: number): Result<{ multiplier: string; decimals: number; responseTimestampNs: string; providerRecencySeconds: number; validatedAtMs: number; maxProviderReportAgeMs: number; responseAgeNs: string; providerReportAgeUpperBoundNs: string; externalObservationTimeVerified: false }> {
   if (!object(value) || typeof value.timestamp !== 'string' || !/^\d+$/.test(value.timestamp) || typeof value.recency_duration_sec !== 'number' || !Number.isSafeInteger(value.recency_duration_sec) || value.recency_duration_sec <= 0 || !Array.isArray(value.prices) || value.prices.length !== 1) return { ok: false, reason: 'Malformed oracle response' };
   if (!Number.isSafeInteger(nowMs) || !Number.isSafeInteger(maxAgeMs) || maxAgeMs <= 0) return { ok: false, reason: 'Invalid freshness limits' };
   const timestamp = BigInt(value.timestamp);
   const nowNs = BigInt(Math.trunc(nowMs)) * 1_000_000n;
-  if (timestamp > nowNs || nowNs - timestamp + BigInt(value.recency_duration_sec) * 1_000_000_000n > BigInt(maxAgeMs) * 1_000_000n) return { ok: false, reason: 'Oracle response or provider recency exceeds configured limit' };
+  if (timestamp > nowNs) return { ok: false, reason: 'Oracle response is in the future' };
+  const responseAgeNs = nowNs - timestamp;
+  const providerReportAgeUpperBoundNs = responseAgeNs + BigInt(value.recency_duration_sec) * 1_000_000_000n;
+  if (providerReportAgeUpperBoundNs > BigInt(maxAgeMs) * 1_000_000n) return { ok: false, reason: 'Oracle response or provider recency exceeds configured limit' };
   const entry: unknown = value.prices[0];
   if (!object(entry) || entry.asset_id !== 'wrap.near' || !object(entry.price)) return { ok: false, reason: 'Missing or unexpected asset price' };
   const { multiplier, decimals } = entry.price;
   if (typeof multiplier !== 'string' || !/^\d+$/.test(multiplier) || BigInt(multiplier) === 0n || typeof decimals !== 'number' || !Number.isInteger(decimals) || decimals < 0 || decimals > 24) return { ok: false, reason: 'Invalid price or units' };
-  return { ok: true, value: { multiplier, decimals, responseTimestampNs: value.timestamp, providerRecencySeconds: value.recency_duration_sec, externalObservationTimeVerified: false } };
+  return { ok: true, value: { multiplier, decimals, responseTimestampNs: value.timestamp, providerRecencySeconds: value.recency_duration_sec, validatedAtMs: nowMs, maxProviderReportAgeMs: maxAgeMs, responseAgeNs: responseAgeNs.toString(), providerReportAgeUpperBoundNs: providerReportAgeUpperBoundNs.toString(), externalObservationTimeVerified: false } };
 }
 
 export type ModelDecision = { decision: 'yes' | 'no'; confidence: number; justification: string } | { decision: 'abstain'; confidence: null; justification: string };
