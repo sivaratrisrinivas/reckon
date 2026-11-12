@@ -1,0 +1,24 @@
+{
+  "name": "reckon-local",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": "26.13.0"
+  },
+  "scripts": {
+    "start": "tsx service.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:contract && playwright test",
+    "test:contract": "tsx tests/contract.ts"
+  },
+  "dependencies": {
+    "near-workspaces": "5.0.0",
+    "tsx": "4.21.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "25.2.3",
+    "typescript": "5.9.3"
+  }
+}
