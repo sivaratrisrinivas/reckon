@@ -12,6 +12,9 @@ let contractAccountId = '';
 let challengerAccountId = '';
 let challengerSecretKey = null;
 let challengerPublicKey = null;
+const publicRecord = new Map();
+let recordSummary = {published: '0', valid_outcomes: '0', correct_outcomes: '0'};
+let recordRefreshInFlight = false;
 
 function near(amount) {
   const value = BigInt(amount);
@@ -50,7 +53,8 @@ function showStatus(message, kind = '') {
 }
 
 function setAvailableAction() {
-  $('ask-button').hidden = Boolean(currentPrediction) || agentIsDead;
+  const unresolvedPrediction = currentPrediction && !currentPrediction.outcome;
+  $('ask-button').hidden = Boolean(unresolvedPrediction) || agentIsDead;
   $('ask-button').disabled = requestInFlight || agentIsDead;
   if (agentIsDead) showStatus('Reckon is permanently dead. New predictions are disabled.', 'unavailable');
   else if (!currentPrediction && !requestInFlight && !$('forecast-status').dataset.kind) {
@@ -60,7 +64,7 @@ function setAvailableAction() {
 
 function renderPrediction(prediction, modelId) {
   currentPrediction = prediction;
-  $('ask-button').hidden = true;
+  $('ask-button').hidden = !prediction.outcome || agentIsDead;
   $('prediction').hidden = false;
   $('question').textContent = prediction.question;
   $('reference').textContent = price(prediction.reference_multiplier, prediction.reference_decimals);
@@ -77,14 +81,40 @@ function renderPrediction(prediction, modelId) {
   $('hosting-note').textContent = fixtureStorage
     ? 'This local snapshot is kept on the sandbox service filesystem and can be downloaded here. Its on-chain HTTPS URL represents a labelled storage fixture. It has not been published to durable public hosting.'
     : 'Public evidence is stored in Vercel Blob without automatic expiry. Exhausting the free allowance can pause access for up to thirty days. The on-chain URL and fingerprint remain readable if this application is offline.';
-  showStatus(`Prediction #${prediction.id} is published. Its reference, confidence, stakes, and deadlines are fixed.`, 'published');
+  renderSettlementState(prediction);
   renderChallengeOffer();
+}
+
+function renderSettlementState(prediction) {
+  const state = $('settlement-state');
+  if (prediction.outcome === 'void') {
+    state.textContent = `Prediction #${prediction.id} was voided because no valid oracle observation arrived within the ${settlementWindowSeconds()}-second window. A challenger refund remains ${prediction.payment?.status === 'paid' ? 'paid on chain' : prediction.payment ? 'pending' : 'not required'}.`;
+    showStatus(`Prediction #${prediction.id} is void. Missing oracle data did not select a winner.`, 'void');
+  } else if (prediction.outcome === 'yes' || prediction.outcome === 'no') {
+    const settlementPrice = prediction.settlement_price
+      ? ` at ${price(prediction.settlement_price.multiplier, prediction.settlement_price.decimals)}`
+      : '';
+    const payment = prediction.payment?.status === 'pending'
+      ? ` Payment pending for ${near(prediction.payment.amount)}.`
+      : prediction.payment?.status === 'paid'
+        ? ` Payment confirmed on chain: ${near(prediction.payment.amount)}.`
+        : ' No outgoing payment was required.';
+    state.textContent = `Resolved ${prediction.outcome.toUpperCase()}${settlementPrice}.${payment}`;
+    showStatus(`Prediction #${prediction.id} resolved ${prediction.outcome.toUpperCase()}.`, 'resolved');
+  } else if (prediction.settlement_status === 'observing' || BigInt(Date.now()) * 1_000_000n >= BigInt(prediction.deadline_ns)) {
+    state.textContent = `The deadline passed. The keeper requested the declared oracle and is waiting for a valid observation, for up to ${settlementWindowSeconds()} seconds.`;
+    showStatus(`Prediction #${prediction.id} is pending oracle observation.`, 'settling');
+  } else {
+    state.textContent = 'The prediction resolves automatically after its five-minute deadline. No result-reveal action is needed.';
+    showStatus(`Prediction #${prediction.id} is published. Its reference, confidence, stakes, and deadlines are fixed.`, 'published');
+  }
 }
 
 function renderChallengeOffer() {
   const panel = $('challenge-panel');
   const button = $('challenge-button');
-  if (!currentPrediction) {
+  if (!currentPrediction || currentPrediction.outcome || currentPrediction.settlement_status === 'observing'
+    || BigInt(Date.now()) * 1_000_000n >= BigInt(currentPrediction.deadline_ns)) {
     panel.hidden = true;
     return;
   }
@@ -116,6 +146,92 @@ function renderChallengeOffer() {
   $('challenge-stake').textContent = near(currentPrediction.challenger_stake);
   $('challenge-return').textContent = potentialReturn(currentPrediction);
   $('challenge-deadline').textContent = dateFromNs(currentPrediction.challenge_deadline_ns);
+}
+
+function settlementWindowSeconds() {
+  return Number($('settlement-rule').dataset.windowSeconds || 120);
+}
+
+function renderPublicRecord() {
+  const published = BigInt(recordSummary.published);
+  const valid = BigInt(recordSummary.valid_outcomes);
+  const correct = BigInt(recordSummary.correct_outcomes);
+  const accuracy = valid === 0n ? '' : ` · ${Number(correct * 10_000n / valid) / 100}% accuracy`;
+  $('record-summary').textContent = `${published} published · ${valid} valid outcomes${accuracy}. Voids do not count.`;
+
+  const predictions = [...publicRecord.values()].sort((left, right) => BigInt(left.id) < BigInt(right.id) ? -1 : 1);
+  const rows = predictions.map(prediction => {
+    const row = document.createElement('li');
+    row.className = `record-entry${prediction.outcome === 'void' ? ' is-void' : ''}`;
+    const title = document.createElement('h3');
+    title.textContent = `Prediction #${prediction.id} · Reckon ${prediction.decision.toUpperCase()}`;
+    const outcome = document.createElement('p');
+    if (prediction.outcome === 'void') {
+      outcome.textContent = 'VOID · no valid settlement observation arrived within the bounded window.';
+    } else if (prediction.outcome) {
+      const settled = prediction.settlement_price
+        ? ` · oracle price ${price(prediction.settlement_price.multiplier, prediction.settlement_price.decimals)}`
+        : '';
+      outcome.textContent = `Outcome ${prediction.outcome.toUpperCase()}${settled}${prediction.challenger_account_id ? ' · challenged' : ' · unchallenged'}.`;
+    } else {
+      outcome.textContent = prediction.settlement_status === 'observing'
+        ? 'Pending oracle observation.'
+        : 'Awaiting the prediction deadline.';
+    }
+    const payment = document.createElement('p');
+    payment.className = 'record-payment';
+    if (!prediction.payment) payment.textContent = 'No outgoing payment required.';
+    else if (prediction.payment.status === 'paid') payment.textContent = `Payment receipt confirmed on chain · ${near(prediction.payment.amount)} to ${prediction.payment.beneficiary_account_id}.`;
+    else payment.textContent = `Payment pending · ${near(prediction.payment.amount)} owed to ${prediction.payment.beneficiary_account_id}.`;
+    row.append(title, outcome, payment);
+    return row;
+  });
+  $('prediction-record').replaceChildren(...rows);
+  const firstId = predictions.length ? BigInt(predictions[0].id) : 1n;
+  $('record-more').hidden = predictions.length === 0 || firstId <= 1n;
+}
+
+async function refreshPublicRecord() {
+  if (recordRefreshInFlight) return;
+  recordRefreshInFlight = true;
+  try {
+    recordSummary = await getJson('/api/predictions/summary');
+    const published = BigInt(recordSummary.published);
+    if (published > 0n) {
+      const start = published > 50n ? published - 49n : 1n;
+      const newest = await getJson(`/api/predictions?start_id=${start}&limit=50`);
+      for (const prediction of newest) publicRecord.set(prediction.id, prediction);
+    }
+    renderPublicRecord();
+    if (currentPrediction) {
+      const refreshed = publicRecord.get(currentPrediction.id);
+      if (refreshed && JSON.stringify(refreshed) !== JSON.stringify(currentPrediction)) {
+        renderPrediction(refreshed);
+      }
+    } else {
+      const latest = [...publicRecord.values()].sort((left, right) => BigInt(left.id) < BigInt(right.id) ? -1 : 1).at(-1);
+      if (latest) renderPrediction(latest);
+    }
+  } catch {
+    $('record-summary').textContent = 'The public record is temporarily unavailable.';
+  } finally {
+    recordRefreshInFlight = false;
+  }
+}
+
+async function loadOlderPredictions() {
+  const predictions = [...publicRecord.values()];
+  if (!predictions.length) return;
+  const firstId = predictions.reduce((first, prediction) => BigInt(prediction.id) < first ? BigInt(prediction.id) : first, BigInt(predictions[0].id));
+  if (firstId <= 1n) return;
+  const start = firstId > 50n ? firstId - 50n : 1n;
+  try {
+    const older = await getJson(`/api/predictions?start_id=${start}&limit=50`);
+    for (const prediction of older) publicRecord.set(prediction.id, prediction);
+    renderPublicRecord();
+  } catch {
+    $('record-summary').textContent = 'Older predictions could not be loaded. Try again.';
+  }
 }
 
 function fillWalletApproval() {
@@ -386,13 +502,17 @@ async function loadConfiguration() {
     $('provider-label').textContent = providerMode === 'fixture'
       ? 'FORECAST INPUTS · SCRIPTED LOCAL FIXTURES'
       : 'FORECAST INPUTS · LIVE PROVIDERS';
+    const rule = `After its deadline, the keeper requests the declared oracle. The first valid response completed within ${config.settlement_window_seconds} seconds sets the result. Caller timing and provider caching can affect that observation; it is not a historical exact-expiry price. If no valid response arrives in time, the round is void and a challenger is refunded.`;
+    $('settlement-rule').textContent = rule;
+    $('approval-settlement-rule').textContent = rule;
+    $('settlement-rule').dataset.windowSeconds = String(config.settlement_window_seconds);
   } catch {
     $('provider-label').textContent = 'FORECAST PROVIDERS · UNAVAILABLE';
   }
 }
 
 async function requestForecast() {
-  if (requestInFlight || currentPrediction || agentIsDead) return;
+  if (requestInFlight || (currentPrediction && !currentPrediction.outcome) || agentIsDead) return;
   requestInFlight = true;
   $('ask-button').disabled = true;
   $('ask-button').textContent = 'Thinking…';
@@ -432,6 +552,7 @@ $('ask-button').addEventListener('click', () => void requestForecast());
 $('challenge-button').addEventListener('click', openChallengeApproval);
 $('approve-challenge').addEventListener('click', () => void approveChallenge());
 $('cancel-challenge').addEventListener('click', () => $('challenge-dialog').close());
-void Promise.all([refreshLife(), refreshPrediction(), loadConfiguration(), loadSandboxWallet()]);
+ $('record-more').addEventListener('click', () => void loadOlderPredictions());
+void Promise.all([refreshLife(), refreshPrediction(), refreshPublicRecord(), loadConfiguration(), loadSandboxWallet()]);
 setInterval(() => void refreshLife(), 3_000);
-setInterval(() => void refreshPrediction(), 5_000);
+setInterval(() => { void refreshPrediction(); void refreshPublicRecord(); }, 5_000);

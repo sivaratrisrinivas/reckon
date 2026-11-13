@@ -1,0 +1,31 @@
+{
+  "captured_on": "2026-11-13",
+  "scenario": "challenged_challenger_win",
+  "environment": "local NEAR sandbox with deterministic oracle fixture",
+  "prediction_id": "2",
+  "total_records_after_round": 2,
+  "outcome": "yes",
+  "payment_status": "paid",
+  "storage_bytes_before_round": "310243",
+  "storage_bytes_after_round": "310846",
+  "storage_growth_bytes": "603",
+  "oracle_fixture_account": "dev-6199-29696.test.near",
+  "oracle_request_attached_near": "0.02",
+  "external_oracle_worker_charge_near": null,
+  "end_to_end_oracle_and_payout_duration_ms": 3641,
+  "end_to_end_gas_burnt_yocto_gas": "9416872366464",
+  "receipt_gas_burnt_yocto_gas": [
+    "2011681781196",
+    "1798409613333",
+    "2490461616526",
+    "223182562500",
+    "223182562500",
+    "1692259841483",
+    "223182562500",
+    "223182562500",
+    "223182562500"
+  ],
+  "successful_receipts": 6,
+  "receipt_count": 9,
+  "notes": "Measures one challenged round from settlement request through successful oracle callback and payout receipt. Storage delta is measured around publication and settlement for that round; the contract already held one prior prediction. The local fixture has no external oracle worker charge. This is not a paid testnet refresh or a tail-latency guarantee."
+}

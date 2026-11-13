@@ -16,6 +16,7 @@ case "$version" in
   *) echo "Expected NEAR sandbox 2.14.0, found: $version" >&2; exit 1 ;;
 esac
 contract_wasm=contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm
+oracle_fixture_wasm=contract/target/wasm32-unknown-unknown/release/reckon_oracle_fixture.wasm
 if [ ! -f "$contract_wasm" ]; then
   echo 'Contract Wasm missing. Run npm run build:contract; see README.md.' >&2
   exit 1
@@ -29,5 +30,20 @@ done
 stale_source=$(find contract/src -type f -name '*.rs' -newer "$contract_wasm" -print -quit)
 if [ -n "$stale_source" ]; then
   echo "Contract Wasm is older than $stale_source. Run npm run build:contract; see README.md." >&2
+  exit 1
+fi
+if [ ! -f "$oracle_fixture_wasm" ]; then
+  echo 'Oracle fixture Wasm missing. Run npm run build:contract; see README.md.' >&2
+  exit 1
+fi
+for build_input in oracle-fixture-contract/Cargo.toml oracle-fixture-contract/Cargo.lock; do
+  if [ "$build_input" -nt "$oracle_fixture_wasm" ]; then
+    echo "Oracle fixture Wasm is older than $build_input. Run npm run build:contract; see README.md." >&2
+    exit 1
+  fi
+done
+stale_source=$(find oracle-fixture-contract/src -type f -name '*.rs' -newer "$oracle_fixture_wasm" -print -quit)
+if [ -n "$stale_source" ]; then
+  echo "Oracle fixture Wasm is older than $stale_source. Run npm run build:contract; see README.md." >&2
   exit 1
 fi

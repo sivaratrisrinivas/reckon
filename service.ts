@@ -4,6 +4,7 @@ import {readFile, readdir} from 'node:fs/promises';
 import {KeyPairEd25519, Worker} from 'near-workspaces';
 import {functionCallAccessKey} from 'near-api-js/lib/transaction.js';
 import {ForecastService, type FixtureScenario, type OnChainPrediction, type PredictionChain, type PredictionQuote, type ProviderMode} from './forecast.js';
+import {SETTLEMENT_WINDOW_SECONDS} from './forecast.js';
 import {publishBlobEvidence} from './evidence-store.js';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
@@ -23,6 +24,13 @@ const challengerWallet = await root.createSubAccount('challenger', {initialBalan
 const challengerKey = await challengerWallet.getKey();
 if (!challengerKey) throw new Error('The sandbox challenger wallet key is unavailable');
 const predictionKey = KeyPairEd25519.fromRandom();
+const oracleFixture = providerMode === 'fixture'
+  ? await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_oracle_fixture.wasm', {
+    initialBalance: 5n * 10n ** 24n,
+    method: 'new',
+    args: {owner_id: root.accountId},
+  })
+  : null;
 const contract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
   initialBalance: 120n * 10n ** 24n,
   method: 'new',
@@ -31,6 +39,7 @@ const contract = await root.devDeploy('contract/target/wasm32-unknown-unknown/re
     operational_reserve: (20n * 10n ** 24n).toString(),
     idle_life_ns: '900000000000',
     prediction_public_key: predictionKey.getPublicKey().toString(),
+    oracle_account_id: oracleFixture?.accountId ?? 'price-oracle.testnet',
   },
 });
 await contract.batch(contract).addKey(
@@ -70,6 +79,41 @@ const files: Record<string, [string, string]> = {
   '/diagnostic-instruct-evidence.json': ['docs/evidence/model-attempt-instruct.json', 'application/json; charset=utf-8'],
   '/diagnostic.js': ['public/diagnostic.js', 'text/javascript; charset=utf-8'],
 };
+
+let settlementKeeperRunning = false;
+async function runSettlementKeeper(): Promise<void> {
+  if (settlementKeeperRunning) return;
+  settlementKeeperRunning = true;
+  try {
+    const prediction = await contract.view<OnChainPrediction | null>('active_prediction', {});
+    if (!prediction) return;
+    const now = await readSandboxBlockTimestamp();
+    const deadline = BigInt(prediction.deadline_ns);
+    const cutoff = deadline + BigInt(SETTLEMENT_WINDOW_SECONDS) * 1_000_000_000n;
+    if (now >= cutoff) {
+      await contract.callRaw(contract, 'void_unsettled_prediction', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
+    } else if (now >= deadline && prediction.settlement_status === 'waiting') {
+      await contract.callRaw(contract, 'request_settlement', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
+    }
+  } catch {
+    // Settlement state is authoritative on chain; the next keeper tick rechecks it.
+  } finally {
+    settlementKeeperRunning = false;
+  }
+}
+
+async function readSandboxBlockTimestamp(): Promise<bigint> {
+  const response = await fetch(sandboxRpcUrl, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({jsonrpc: '2.0', id: 'reckon-settlement-keeper', method: 'block', params: {finality: 'optimistic'}}),
+  });
+  if (!response.ok) throw new Error('Sandbox block read failed');
+  const body = await response.json() as {result?: {header?: {timestamp_nanosec?: string}}};
+  const timestamp = body.result?.header?.timestamp_nanosec;
+  if (!timestamp || !/^\d+$/.test(timestamp)) throw new Error('Sandbox block timestamp is missing');
+  return BigInt(timestamp);
+}
 
 const server = createServer(async (req, res) => {
   try {
@@ -113,6 +157,8 @@ const server = createServer(async (req, res) => {
         provider_mode: providerMode,
         evidence_hosting: providerMode === 'live' ? 'Vercel Blob public storage' : 'local deterministic storage fixture',
         model_calls_per_utc_day: providerMode === 'live' ? 12 : null,
+        settlement_window_seconds: SETTLEMENT_WINDOW_SECONDS,
+        settlement_oracle: oracleFixture ? oracleFixture.accountId : 'price-oracle.testnet',
       }, {'Cache-Control': 'no-store'});
       return;
     }
@@ -137,8 +183,13 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/predictions') {
       const start = url.searchParams.get('start_id') ?? '1';
-      if (!/^[1-9]\d{0,18}$/.test(start)) { json(res, 400, {error: 'Invalid prediction page'}); return; }
-      json(res, 200, await contract.view('list_predictions', {start_id: start, limit: '50'}), {'Cache-Control': 'no-store'});
+      const limit = url.searchParams.get('limit') ?? '50';
+      if (!validPredictionCursor(start) || !/^(?:[1-9]|[1-4]\d|50)$/.test(limit)) { json(res, 400, {error: 'Invalid prediction page'}); return; }
+      json(res, 200, await contract.view('list_predictions', {start_id: start, limit}), {'Cache-Control': 'no-store'});
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/predictions/summary') {
+      json(res, 200, await contract.view('prediction_summary', {}), {'Cache-Control': 'no-store'});
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/forecast') {
@@ -163,7 +214,20 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/advance') {
-      await worker.provider.fastForward(300);
+      const body = await readJsonBody(req);
+      const seconds = body.seconds === undefined ? 300 : Number(body.seconds);
+      if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 600) { json(res, 400, {error: 'Advance must be between 1 and 600 seconds'}); return; }
+      await worker.provider.fastForward(seconds);
+      await runSettlementKeeper();
+      res.writeHead(204).end();
+      return;
+    }
+    if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/settlement-scenario') {
+      const body = await readJsonBody(req);
+      const scenario = body.scenario;
+      const allowed = ['below', 'above', 'equal', 'invalid', 'invalid_units', 'stale', 'wrong_asset', 'wrong_request_id', 'stalled'];
+      if (!oracleFixture || typeof scenario !== 'string' || !allowed.includes(scenario)) { json(res, 400, {error: 'Unsupported settlement fixture'}); return; }
+      await root.call(oracleFixture, 'set_scenario', {scenario});
       res.writeHead(204).end();
       return;
     }
@@ -220,11 +284,21 @@ async function readJsonBody(req: import('node:http').IncomingMessage, maximumLen
   return value as Record<string, unknown>;
 }
 
+function validPredictionCursor(value: string): boolean {
+  if (!/^[1-9]\d{0,19}$/.test(value)) return false;
+  return BigInt(value) <= 18_446_744_073_709_551_615n;
+}
+
 const port = Number(process.env.PORT ?? 4389);
 server.listen(port, '127.0.0.1', () => {
   const providerLabel = providerMode === 'fixture' ? 'scripted external providers for local use' : 'live evidence and model providers';
   console.log(`Reckon local sandbox (${providerLabel}): http://127.0.0.1:${port}`);
 });
+const settlementKeeper = setInterval(() => { void runSettlementKeeper(); }, 1_000);
+void runSettlementKeeper();
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, () => server.close(() => { void worker.tearDown().finally(() => process.exit()); }));
+  process.once(signal, () => {
+    clearInterval(settlementKeeper);
+    server.close(() => { void worker.tearDown().finally(() => process.exit()); });
+  });
 }

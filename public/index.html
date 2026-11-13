@@ -67,6 +67,7 @@
             <div><dt>Prediction deadline</dt><dd id="deadline"></dd></div>
             <div><dt>Model identity</dt><dd id="model-id"></dd></div>
           </dl>
+          <p id="settlement-state" class="settlement-state" role="status" aria-live="polite"></p>
           <section id="challenge-panel" class="challenge-panel" aria-labelledby="challenge-heading" hidden>
             <p class="eyebrow">ONE OPEN POSITION</p>
             <h4 id="challenge-heading">Take the opposing side</h4>
@@ -116,9 +117,11 @@
 
       <section class="record" aria-labelledby="record-heading">
         <p class="eyebrow">PUBLIC RECORD</p>
-        <h2 id="record-heading">One prediction at a time</h2>
-        <p>The question stays fixed: will the settlement price be strictly above the reference? Equality resolves to no. No prediction is created when inference abstains, evidence is stale, or a required provider is unavailable.</p>
-        <p class="note">The oracle reports a bounded settlement-time observation, not a guaranteed historical price at the exact deadline. Caller timing and provider caching can affect that observation.</p>
+        <h2 id="record-heading">Published predictions and results</h2>
+        <p id="record-summary" role="status" aria-live="polite">Loading the public on-chain record.</p>
+        <ol id="prediction-record" class="prediction-record"></ol>
+        <button id="record-more" class="secondary" type="button" hidden>Load older predictions</button>
+        <p class="note">Accuracy counts every valid outcome, including unchallenged predictions. Voids are excluded. The oracle reports a bounded settlement-time observation, not a guaranteed historical price at the exact deadline. Caller timing and provider caching can affect that observation.</p>
         <p><a href="/diagnostic">View testnet integration diagnostic</a></p>
       </section>
     </main>

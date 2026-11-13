@@ -117,6 +117,7 @@ p { color: var(--muted); }
 .challenge-terms { margin: 1rem 0; }
 .risk-note { color: var(--text); font-weight: 700; }
 .settlement-rule { max-width: 78ch; color: var(--muted); font-size: .9rem; }
+.settlement-state { min-height: 1.6em; padding: .75rem 1rem; border-left: 2px solid var(--accent); background: var(--surface); }
 .transaction-state { min-height: 1.6em; margin-bottom: 0; }
 .wallet-dialog { width: min(720px, calc(100% - 2rem)); max-height: calc(100% - 2rem); padding: 0; border: 1px solid var(--accent); border-radius: .35rem; background: var(--surface-raised); color: var(--text); }
 .wallet-dialog::backdrop { background: rgb(0 0 0 / 75%); }
@@ -135,6 +136,12 @@ p { color: var(--muted); }
 .record { padding: 3rem 0 2rem; }
 .record > p { max-width: 78ch; }
 .record a { color: var(--accent); }
+.prediction-record { display: grid; gap: .75rem; margin: 1.5rem 0; padding: 0; list-style: none; }
+.record-entry { padding: 1rem 1.25rem; border: 1px solid var(--border); background: var(--surface); }
+.record-entry h3 { margin: 0; font-size: 1rem; }
+.record-entry p { margin: .4rem 0 0; }
+.record-entry .record-payment { font-size: .875rem; }
+.record-entry.is-void { border-style: dashed; }
 
 footer {
   padding: 2rem;

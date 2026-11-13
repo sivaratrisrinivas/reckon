@@ -1,6 +1,6 @@
 # Reckon
 
-Reckon is an experiment in an AI staking its own bankroll on its predictions. The local browser can request one forecast, inspect its fixed terms, accept one challenge with a funded ephemeral browser signer, and download the evidence snapshot committed by fingerprint to the real NEAR sandbox contract. The current slice records and holds a challenge but does not settle predictions or pay either side. All funds in this demonstration are sandbox test money; this is not a testnet or mainnet deployment.
+Reckon is an experiment in an AI staking its own bankroll on its predictions. The local browser can request one forecast, inspect its fixed terms, accept one challenge with a funded ephemeral browser signer, and watch the real NEAR sandbox contract settle the round automatically. A deterministic oracle contract replaces only the external oracle boundary in local mode; outcomes and payment receipts still come from the same compiled Reckon contract. All funds in this demonstration are sandbox test money; this is not a testnet or mainnet deployment.
 
 ## Run on Linux x86-64
 
@@ -23,13 +23,15 @@ Open http://127.0.0.1:4389. The service starts a new sandbox, initializes a fres
 
 ## Forecasts and evidence
 
-`RECKON_PROVIDER_MODE` defaults to `fixture`. In this mode, recent simulated NEAR/USD candles, a simulated oracle reference, and a deterministic model response are labelled in the browser and evidence file. They exercise the same compiled contract and restricted prediction key as a real request; they do not demonstrate live forecast skill. This local-only fixture is never selected as a fallback in live provider mode.
+`RECKON_PROVIDER_MODE` defaults to `fixture`. In this mode, recent simulated NEAR/USD candles, a simulated oracle reference, a deterministic model response, and a deterministic settlement oracle are labelled in the browser and evidence file. They exercise the same compiled Reckon contract and restricted prediction key as a real request; the local oracle calls the contract's authenticated asynchronous callback. These fixtures do not demonstrate live forecast skill or paid oracle refresh. They are never selected as a fallback in live provider mode.
 
 Set `RECKON_PROVIDER_MODE=live` to use completed public Coinbase NEAR-USD candles, the cached `wrap.near` reference from `price-oracle.testnet`, and the configured NEAR AI model. Live mode requires `NEAR_AI_API_KEY`, `NEAR_AI_MODEL`, and `BLOB_READ_WRITE_TOKEN` in the private `.env`; missing configuration stops startup. Use a public Vercel Blob store on a confirmed Hobby project. Keep the token private and out of source control. The oracle reference may be null or stale. In that case, or if market evidence or inference is unavailable, no prediction is published. This mode still publishes only to the local sandbox contract and only accepts sandbox test-money challenges. It does not refresh the oracle for a new on-chain observation or deploy to testnet.
 
 The model sees the fixed binary question, the reference price, recent completed candles, and the bounded settlement rules. It returns `yes`, `no`, or `abstain`, a probability for its selected side, and a justification of at most 1,000 characters. Invalid output, abstention, unsupported confidence, or stale prerequisites create no prediction. The current input checks require completed candles to be at most 180 seconds old and the oracle response plus its reported recency allowance to fit within 600 seconds. These are implementation limits, not measured production freshness guarantees. The contract fixes deadlines at publication: a thirty-second challenge window and a five-minute prediction horizon. Equality is no. The one unresolved prediction is enforced on-chain.
 
 The contract stores confidence as parts per million on a 1,000,000 scale. The current quote supports confidence from 100,000 to 900,000 (10% to 90%) and rounds to the nearest one millionth. For selected-side confidence `q`, the fair challenger stake is `agent stake × (1 − q) / q`, rounded to the nearest yoctoNEAR, ties upward. The agent stake uses at most 2% of spendable bankroll projected after the thirty-second challenge window. Monetary amounts are checked `u128` yoctoNEAR integers; the agent stake minimum is 0.01 NEAR and the challenger stake minimum is 0.001 NEAR. The reference multiplier must be positive, fit `u128`, and use between 0 and 24 decimals. These are initial implementation settings for the local slice; they require measured rehearsal and confirmation before any final testnet configuration.
+
+The keeper starts one settlement request when the five-minute prediction deadline passes. Its first valid callback must complete within 120 seconds of that deadline. This initial limit is based on the longest recorded paid testnet callback (50.356 seconds) plus margin; the available samples are too few to establish tail latency. If the callback fails, is invalid, or does not arrive by the cutoff, anyone can void the prediction and recover challenger custody. Equality resolves to no. An accepted result is immutable. Challenged payouts and void refunds are recorded as liabilities before NEAR transfers begin; the public record shows payment pending until the transfer receipt succeeds. The [oracle feasibility record](docs/research/price-settlement-feasibility.md) explains the observations and the limit of the latency evidence.
 
 The local contract is initialized with a generated prediction public key and a finite 5 NEAR function-call allowance restricted to `publish_prediction`. The contract checks that exact key when it publishes. This allowance is only a local development setting; production lifetime and reserves have not been measured.
 
@@ -81,10 +83,13 @@ npx playwright install --with-deps chromium --only-shell
 rustup component add rustfmt
 npm run lint
 npm run typecheck
+npm run test:settlement
 npm test
 npm run test:diagnostic-contract
 npm run audit:high
 ```
+
+`npm run build:contract` builds both the Reckon contract and the deterministic sandbox oracle fixture. The settlement test runs challenged and unchallenged rounds, checks equality, validates oracle callbacks, observes successful payout and refund receipts, and asserts that stalled or invalid observations can be voided. The browser tests also advance sandbox time to show automatic settlement, balance changes, public accuracy, and reload behavior without a reveal action. Fixture oracle latency and gas measure the local callback path, not a paid testnet refresh. The complete-round local measurement is in `docs/evidence/complete-round-local.json`; live oracle latency samples remain in `docs/evidence/testnet-latency-cost-samples.json` and the feasibility record.
 
 The start and test commands check for the configured sandbox 2.14.0 binary and the compiled contract before running. If either is missing, follow the setup commands above. The contract checks deploy to a real sandbox, reject initialization twice, transfer funds, advance sandbox time, and exercise repeated upkeep, death, and the fifteen-day live rate. The browser test starts its own sandbox, advances its time through a test-only endpoint, and checks the displayed funds and life. Test processes need permission to bind local ports. They require no paid inference or personal keys.
 

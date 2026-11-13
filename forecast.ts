@@ -4,7 +4,8 @@ import {dirname, join} from 'node:path';
 import {validateModel, validateOracleReport} from './diagnostic/validate.js';
 
 const QUESTION = 'Will the NEAR/USD settlement price be strictly above the reference price?';
-const RULES = `${QUESTION} The prediction deadline is five minutes after publication. The challenge window is thirty seconds after publication. Settlement uses the first successful valid oracle request initiated after the deadline and completed within a bounded settlement window. Caller timing and provider caching affect the observation; it is not an exact historical expiry price. Equal prices resolve to no. If no valid result arrives in the window, the prediction is void.`;
+export const SETTLEMENT_WINDOW_SECONDS = 120;
+const RULES = `${QUESTION} The prediction deadline is five minutes after publication. The challenge window is thirty seconds after publication. Settlement uses the first successful valid oracle request initiated after the deadline and completed within ${SETTLEMENT_WINDOW_SECONDS} seconds. Caller timing and provider caching affect the observation; it is not an exact historical expiry price. Equal prices resolve to no. If no valid result arrives in the window, the prediction is void.`;
 const SYSTEM_PROMPT = 'Return a structured judgment using only the supplied evidence. Confidence is the probability that your selected side is correct. You may abstain with null confidence when the evidence is insufficient.';
 const RESPONSE_FORMAT = {
   type: 'json_schema',
@@ -56,6 +57,13 @@ export type OnChainPrediction = {
   published_at_ns: string;
   challenge_deadline_ns: string;
   deadline_ns: string;
+  settlement_status: 'waiting' | 'observing' | 'resolved' | 'void';
+  settlement_request_id: string | null;
+  settlement_requested_at_ns: string | null;
+  settlement_price: {multiplier: string; decimals: number; response_timestamp_ns: string; provider_recency_seconds: number} | null;
+  outcome: 'yes' | 'no' | 'void' | null;
+  settled_at_ns: string | null;
+  payment: {beneficiary_account_id: string; amount: string; status: 'pending' | 'paid'; transfer_in_flight: boolean} | null;
 };
 
 export type PredictionQuote = {

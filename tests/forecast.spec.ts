@@ -3,7 +3,7 @@ import {chmod, readFile, writeFile, mkdtemp, rm, access} from 'node:fs/promises'
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {join} from 'node:path';
-import {test, expect, type APIRequestContext} from '@playwright/test';
+import {test, expect, type APIRequestContext, type Page} from '@playwright/test';
 
 async function scenario(request: APIRequestContext, value: string): Promise<void> {
   await request.post('/test/forecast-scenario', {data: {scenario: value}});
@@ -21,6 +21,7 @@ function formatNear(amount: string): string {
 test('invalid evidence and abstention publish nothing; one browser request publishes fixed terms and downloadable evidence', async ({page, request}) => {
   await expect((await request.get('/api/predictions/active')).status()).toBe(200);
   expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
+  expect((await request.get('/api/predictions?start_id=1&limit=51')).status()).toBe(400);
 
   for (const name of ['stale-market', 'invalid-reference', 'invalid-output', 'unsupported-confidence', 'unavailable-model', 'unavailable-storage']) {
     await scenario(request, name);
@@ -135,4 +136,66 @@ test('invalid evidence and abstention publish nothing; one browser request publi
     await chmod(evidencePath, 0o444);
     await rm(archiveParent, {recursive: true, force: true});
   }
+
+  await page.reload();
+  await expect(page.getByRole('button', {name: /reveal/i})).toHaveCount(0);
+  const balanceAfterChallenge = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  expect((await request.post('/test/settlement-scenario', {data: {scenario: 'equal'}})).status()).toBe(204);
+  expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('Resolved NO', {timeout: 20_000});
+  await expect(page.locator('#record-summary')).toContainText('1 published · 1 valid outcome');
+  await expect(page.locator('.record-entry').last()).toContainText('Outcome NO');
+  expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBe(balanceAfterChallenge);
+  await page.reload();
+  await expect(page.locator('.record-entry').last()).toContainText('Outcome NO');
+  await expect(page.locator('.record-entry').last()).toContainText('No outgoing payment required');
+});
+
+async function publishAndChallenge(page: Page, request: APIRequestContext) {
+  await scenario(request, 'publish');
+  await page.goto('/');
+  const balanceBefore = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  await expect(page.locator('#prediction')).toBeVisible();
+  const prediction = (await (await request.get('/api/predictions/active')).json()).prediction;
+  await page.getByRole('button', {name: 'Challenge Prediction'}).click();
+  await page.getByRole('dialog', {name: 'Approve this challenge'}).getByRole('button', {name: 'Approve stake in local wallet'}).click();
+  await expect(page.locator('#forecast-status')).toContainText('accepted on chain', {timeout: 30_000});
+  const balanceAfterChallenge = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  expect(balanceAfterChallenge).toBeLessThan(balanceBefore);
+  return {prediction, balanceBefore, balanceAfterChallenge};
+}
+
+test('challenger win returns both stakes and the public result survives reload', async ({page, request}) => {
+  const {prediction, balanceBefore} = await publishAndChallenge(page, request);
+  expect((await request.post('/test/settlement-scenario', {data: {scenario: 'above'}})).status()).toBe(204);
+  expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('Resolved YES', {timeout: 20_000});
+  await expect(page.locator('#settlement-state')).toContainText('Payment confirmed on chain');
+  await expect(page.locator('#record-summary')).toContainText('2 valid outcomes');
+  await expect(page.locator('.record-entry').last()).toContainText('Payment receipt confirmed on chain');
+  expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBeGreaterThan(balanceBefore);
+  expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
+  expect((await (await request.get(`/api/predictions?start_id=${prediction.id}&limit=1`)).json())[0].outcome).toBe('yes');
+  await page.reload();
+  await expect(page.locator('.record-entry').last()).toContainText('Outcome YES');
+  await expect(page.getByRole('button', {name: /reveal/i})).toHaveCount(0);
+});
+
+test('stalled oracle observation voids after the bounded window and refunds the challenger', async ({page, request}) => {
+  const {balanceAfterChallenge} = await publishAndChallenge(page, request);
+  expect((await request.post('/test/settlement-scenario', {data: {scenario: 'stalled'}})).status()).toBe(204);
+  expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('pending oracle observation', {timeout: 20_000});
+  const observing = (await (await request.get('/api/predictions/active')).json()).prediction;
+  expect(observing.settlement_status).toBe('observing');
+  expect(observing.settlement_request_id).toBeTruthy();
+  expect((await request.post('/test/advance', {data: {seconds: 120}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('was voided', {timeout: 20_000});
+  await expect(page.locator('#settlement-state')).toContainText('refund remains paid on chain');
+  await expect(page.locator('#record-summary')).toContainText('3 published · 2 valid outcomes');
+  expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBeGreaterThan(balanceAfterChallenge);
+  await page.reload();
+  await expect(page.locator('.record-entry').last()).toContainText('VOID');
+  await expect(page.locator('.record-entry').last()).toContainText('Payment receipt confirmed on chain');
 });

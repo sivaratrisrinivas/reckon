@@ -21,6 +21,7 @@ try {
     operational_reserve: (20n * NEAR).toString(),
     idle_life_ns: '900000000000',
     prediction_public_key: predictionKey.getPublicKey().toString(),
+    oracle_account_id: root.accountId,
   };
   const contract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {initialBalance: 120n * 10n ** 24n, method: 'new', args});
   await contract.batch(contract).addKey(
@@ -165,7 +166,7 @@ try {
   assert.equal(closedPrediction.challenger_account_id, null, 'a late take cannot claim the position');
   assert.equal(BigInt((await lateContract.balance()).total), lateContractBalance, 'the late deposit is rejected and returned');
 
-  const tiny = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {initialBalance: 3n * 10n ** 24n, method: 'new', args: {initial_bankroll: '10', operational_reserve: '1', idle_life_ns: '100000000000', prediction_public_key: KeyPairEd25519.fromRandom().getPublicKey().toString()}});
+  const tiny = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {initialBalance: 5n * 10n ** 24n, method: 'new', args: {initial_bankroll: '10', operational_reserve: '1', idle_life_ns: '100000000000', prediction_public_key: KeyPairEd25519.fromRandom().getPublicKey().toString(), oracle_account_id: root.accountId}});
   for (let i = 0; i < 4; i++) {
     await worker.provider.fastForward(5);
     await root.call(tiny, 'accrue', {});
