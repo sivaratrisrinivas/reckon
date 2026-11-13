@@ -26,6 +26,7 @@ assert.equal(validateOracleReport({...reference, prices: [{asset_id: 'wrap.near'
 assert.equal(validateOracleReport({...reference, prices: [{asset_id: 'wrong', price: evidence.evidence.reference.price}]}, nowMs, 600_000).ok, false);
 assert.equal(validateOracleReport(null, nowMs, 600_000).ok, false);
 assert.equal(validateModel(evidence.choice.message.content).ok, true);
+assert.equal(validateModel(JSON.stringify({decision: 'yes', confidence: 0.5, justification: 'x'.repeat(1001)})).ok, false);
 assert.equal(validateModel(null).ok, false);
 assert.equal(validateModel('{').ok, false);
 assert.equal(validateModel('{"decision":"abstain","confidence":0,"justification":"No data"}').ok, false);

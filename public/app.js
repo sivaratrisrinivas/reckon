@@ -45,7 +45,7 @@ function setAvailableAction() {
   }
 }
 
-function renderPrediction(prediction, evidenceUrl, modelId) {
+function renderPrediction(prediction, modelId) {
   currentPrediction = prediction;
   $('ask-button').hidden = true;
   $('prediction').hidden = false;
@@ -59,8 +59,11 @@ function renderPrediction(prediction, evidenceUrl, modelId) {
   $('deadline').textContent = dateFromNs(prediction.deadline_ns);
   $('model-id').textContent = modelId || 'Recorded in the downloadable evidence';
   $('fingerprint').textContent = prediction.evidence_hash;
-  $('evidence-link').href = evidenceUrl || `/api/evidence/${prediction.evidence_hash}`;
-  $('hosting-note').textContent = 'This local snapshot is kept on the sandbox service filesystem and can be downloaded here. It has not been published to durable public hosting.';
+  const fixtureStorage = prediction.evidence_url.startsWith('https://evidence.reckon.invalid/');
+  $('evidence-link').href = fixtureStorage ? `/api/evidence/${prediction.evidence_hash}` : prediction.evidence_url;
+  $('hosting-note').textContent = fixtureStorage
+    ? 'This local snapshot is kept on the sandbox service filesystem and can be downloaded here. Its on-chain HTTPS URL represents a labelled storage fixture. It has not been published to durable public hosting.'
+    : 'Public evidence is stored in Vercel Blob without automatic expiry. Exhausting the free allowance can pause access for up to thirty days. The on-chain URL and fingerprint remain readable if this application is offline.';
   showStatus(`Prediction #${prediction.id} is published. Its reference, confidence, stakes, and deadlines are fixed.`, 'published');
 }
 
@@ -126,7 +129,7 @@ async function requestForecast() {
     const response = await fetch('/api/forecast', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
     const result = await response.json();
     if (result.status === 'published') {
-      renderPrediction(result.prediction, result.evidence_url, result.model_id);
+      renderPrediction(result.prediction, result.model_id);
     } else if (result.status === 'abstained') {
       showStatus(`Reckon abstained. No prediction was published. ${result.justification}`, 'abstained');
     } else if (result.status === 'busy') {

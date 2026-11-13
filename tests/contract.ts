@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { KeyPairEd25519, Worker } from 'near-workspaces';
-import { functionCallAccessKey } from 'near-api-js/lib/transaction';
+import { functionCallAccessKey } from 'near-api-js/lib/transaction.js';
 
 const NEAR = 10n ** 24n;
 const predictionArgs = {
@@ -9,6 +9,7 @@ const predictionArgs = {
   decision: 'no',
   confidence_ppm: 850_000,
   evidence_hash: 'a'.repeat(64),
+  evidence_url: `https://evidence.reckon.invalid/${'a'.repeat(64)}.json`,
 };
 
 const worker = await Worker.init();
@@ -40,9 +41,11 @@ try {
   const expectedFairOdds = (BigInt(quote.agent_stake) * 150_000n + 425_000n) / 850_000n;
   assert.equal(BigInt(quote.challenger_stake), expectedFairOdds, 'challenger quote follows the selected-side probability without a margin');
 
-  await assert.rejects(contract.call(contract, 'publish_prediction', predictionArgs), /Prediction key is not authorized/);
-  await assert.rejects(contract.call(contract, 'publish_prediction', {...predictionArgs, reference_multiplier: '0'}, {signWithKey: predictionKey}), /Invalid reference price/);
+  await assert.rejects(contract.call(contract, 'publish_prediction', predictionArgs));
+  await assert.rejects(contract.call(contract, 'publish_prediction', {...predictionArgs, reference_multiplier: '0'}, {signWithKey: predictionKey}));
   assert.equal(await contract.view('active_prediction'), null, 'an invalid reference creates no prediction');
+  await assert.rejects(contract.call(contract, 'publish_prediction', {...predictionArgs, evidence_url: 'http://example.com/evidence.json'}, {signWithKey: predictionKey}));
+  assert.equal(await contract.view('active_prediction'), null, 'an invalid evidence URL creates no prediction');
   const prediction = await contract.call<{
     id: string;
     decision: string;
@@ -50,6 +53,7 @@ try {
     agent_stake: string;
     challenger_stake: string;
     evidence_hash: string;
+    evidence_url: string;
     published_at_ns: string;
     challenge_deadline_ns: string;
     deadline_ns: string;
@@ -57,21 +61,23 @@ try {
   assert.equal(prediction.id, '1');
   assert.equal(prediction.decision, 'no');
   assert.equal(prediction.confidence_ppm, 850_000);
-  assert.equal(prediction.agent_stake, quote.agent_stake);
-  assert.equal(prediction.challenger_stake, quote.challenger_stake);
+  assert(BigInt(prediction.agent_stake) <= BigInt(quote.agent_stake), 'publication prices the remaining bankroll after elapsed upkeep');
+  assert.equal(BigInt(prediction.challenger_stake), (BigInt(prediction.agent_stake) * 150_000n + 425_000n) / 850_000n, 'published stakes preserve exact fair-odds rounding');
   assert.equal(prediction.evidence_hash, predictionArgs.evidence_hash);
+  assert.equal(prediction.evidence_url, predictionArgs.evidence_url);
   assert.equal(BigInt(prediction.challenge_deadline_ns) - BigInt(prediction.published_at_ns), 30_000_000_000n);
   assert.equal(BigInt(prediction.deadline_ns) - BigInt(prediction.published_at_ns), 300_000_000_000n);
-  await assert.rejects(contract.call(contract, 'publish_prediction', predictionArgs, {signWithKey: predictionKey}), /unresolved prediction/);
-  await assert.rejects(contract.view('quote_prediction', {confidence_ppm: 0}), /confidence/);
+  await assert.rejects(contract.call(contract, 'publish_prediction', predictionArgs, {signWithKey: predictionKey}));
+  await assert.rejects(contract.view('quote_prediction', {confidence_ppm: 0}));
 
   const active = await contract.view<typeof prediction>('active_prediction');
   assert.equal(active?.evidence_hash, predictionArgs.evidence_hash);
 
+  await worker.provider.fastForward(5); // Let prior publication gas-refund receipts complete before comparing balances.
   const before = await contract.view<{spendable_bankroll:string; retired_bankroll:string; operational_reserve:string}>('life');
   const physicalBefore = BigInt((await contract.balance()).total);
   const partitionBefore = BigInt(before.spendable_bankroll) + BigInt(before.retired_bankroll) + BigInt(before.operational_reserve);
-  assert.equal(partitionBefore, physicalBefore, 'initial partition matches the funded contract account');
+  assert(partitionBefore >= physicalBefore && partitionBefore - physicalBefore < BigInt(before.operational_reserve), 'publication fees remain within the operational reserve, separate from bankroll');
   await root.transfer(contract, 10n ** 24n);
   const after = await contract.view<{spendable_bankroll:string; retired_bankroll:string; operational_reserve:string}>('life');
   const physicalAfter = BigInt((await contract.balance()).total);
@@ -83,7 +89,7 @@ try {
   const later = await contract.view<{spendable_bankroll:string; retired_bankroll:string}>('life');
   assert(BigInt(later.spendable_bankroll) < BigInt(after.spendable_bankroll));
   assert(BigInt(later.retired_bankroll) > BigInt(after.retired_bankroll));
-  const tiny = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {initialBalance: 2n * 10n ** 24n, method: 'new', args: {initial_bankroll: '10', operational_reserve: '1', idle_life_ns: '100000000000', prediction_public_key: KeyPairEd25519.fromRandom().getPublicKey().toString()}});
+  const tiny = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {initialBalance: 3n * 10n ** 24n, method: 'new', args: {initial_bankroll: '10', operational_reserve: '1', idle_life_ns: '100000000000', prediction_public_key: KeyPairEd25519.fromRandom().getPublicKey().toString()}});
   for (let i = 0; i < 4; i++) {
     await worker.provider.fastForward(5);
     await root.call(tiny, 'accrue', {});

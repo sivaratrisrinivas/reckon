@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default [
-  { ignores: ['node_modules/**', 'contract/target/**', 'test-results/**', 'playwright-report/**'] },
+  { ignores: ['.local/**', 'node_modules/**', 'contract/target/**', 'test-results/**', 'playwright-report/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   { files: ['public/**/*.js'], languageOptions: { globals: { document: 'readonly', fetch: 'readonly', setInterval: 'readonly' } } },

@@ -1,5 +1,7 @@
 import {createHash} from 'node:crypto';
-import {chmod, readFile, writeFile} from 'node:fs/promises';
+import {chmod, readFile, writeFile, mkdtemp, rm, access} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {join} from 'node:path';
 import {test, expect, type APIRequestContext} from '@playwright/test';
 
@@ -12,7 +14,7 @@ test('invalid evidence and abstention publish nothing; one browser request publi
   await expect((await request.get('/api/predictions/active')).status()).toBe(200);
   expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
 
-  for (const name of ['stale-market', 'invalid-reference', 'invalid-output', 'unsupported-confidence', 'unavailable-model']) {
+  for (const name of ['stale-market', 'invalid-reference', 'invalid-output', 'unsupported-confidence', 'unavailable-model', 'unavailable-storage']) {
     await scenario(request, name);
     const response = await request.post('/api/forecast', {data: {}});
     expect(response.status(), `${name} must fail without publishing`).toBe(503);
@@ -51,29 +53,49 @@ test('invalid evidence and abstention publish nothing; one browser request publi
 
   const prediction = (await (await request.get('/api/predictions/active')).json()).prediction;
   expect(prediction.evidence_hash).toBe(published.prediction.evidence_hash);
+  expect(prediction.evidence_url).toBe(`https://evidence.reckon.invalid/${prediction.evidence_hash}.json`);
   expect(BigInt(prediction.challenge_deadline_ns) - BigInt(prediction.published_at_ns)).toBe(30_000_000_000n);
   expect(BigInt(prediction.deadline_ns) - BigInt(prediction.published_at_ns)).toBe(300_000_000_000n);
   expect(prediction.agent_stake).toBeTruthy();
   expect(prediction.challenger_stake).toBeTruthy();
 
-  const evidenceResponse = await request.get(published.evidence_url);
+  expect(published.evidence_url).toBe(prediction.evidence_url);
+  const downloadUrl = await page.getByRole('link', {name: 'Download evidence snapshot'}).getAttribute('href');
+  if (!downloadUrl) throw new Error('Evidence download link is missing');
+  const evidenceResponse = await request.get(downloadUrl);
   expect(evidenceResponse.status()).toBe(200);
   const evidence = await evidenceResponse.text();
   expect(createHash('sha256').update(evidence).digest('hex')).toBe(prediction.evidence_hash);
   expect(JSON.parse(evidence).provider_mode).toBe('scripted deterministic providers for local sandbox only');
   expect(JSON.parse(evidence).limitations).toContain('The model inference is off-chain and this fingerprint does not prove that the recorded model response was executed.');
   await expect(page.getByText('It has not been published to durable public hosting.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('link', {name: 'Download evidence snapshot'})).toHaveAttribute('href', `/api/evidence/${prediction.evidence_hash}`);
+
+  const archiveParent = await mkdtemp(join('.local/', 'archive-test-'));
+  const archive = join(archiveParent, 'export');
+  const runArchive = () => promisify(execFile)(process.execPath, ['--import', 'tsx', 'scripts/archive-evidence.ts', 'http://127.0.0.1:4389', archive]);
+  await runArchive();
+  expect(await readFile(join(archive, `${prediction.evidence_hash}.json`), 'utf8')).toBe(evidence);
+  const manifest = JSON.parse(await readFile(join(archive, 'manifest.json'), 'utf8'));
+  expect(manifest.predictions).toEqual([{prediction_id: prediction.id, evidence_url: prediction.evidence_url, sha256: prediction.evidence_hash, file: `${prediction.evidence_hash}.json`}]);
+  await expect(runArchive()).rejects.toThrow();
+  expect(await readFile(join(archive, `${prediction.evidence_hash}.json`), 'utf8')).toBe(evidence);
+  await rm(archive, {recursive: true});
 
   const evidencePath = join('.local/evidence', `${prediction.evidence_hash}.json`);
   const originalEvidence = await readFile(evidencePath, 'utf8');
   await chmod(evidencePath, 0o644);
   try {
     await writeFile(evidencePath, `${originalEvidence} `);
-    const tampered = await request.get(published.evidence_url);
+    const tampered = await request.get(downloadUrl);
     expect(tampered.status()).toBe(409);
     expect(await tampered.json()).toEqual({error: 'Evidence fingerprint does not match this snapshot'});
+    await expect(runArchive()).rejects.toThrow();
+    await expect(access(archive)).rejects.toThrow();
   } finally {
     await writeFile(evidencePath, originalEvidence);
     await chmod(evidencePath, 0o444);
+    await rm(archiveParent, {recursive: true, force: true});
   }
 });

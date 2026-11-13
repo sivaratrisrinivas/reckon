@@ -64,6 +64,7 @@ pub struct Prediction {
     agent_stake: U128,
     challenger_stake: U128,
     evidence_hash: String,
+    evidence_url: String,
     published_at_ns: U64,
     challenge_deadline_ns: U64,
     deadline_ns: U64,
@@ -177,6 +178,7 @@ impl Reckon {
         decision: String,
         confidence_ppm: u32,
         evidence_hash: String,
+        evidence_url: String,
     ) -> Prediction {
         require!(
             env::predecessor_account_id() == env::current_account_id(),
@@ -208,6 +210,17 @@ impl Reckon {
         );
 
         let now = env::block_timestamp();
+        require!(
+            evidence_url.starts_with("https://")
+                && evidence_url.len() <= 2048
+                && evidence_url.len() > 8
+                && evidence_url.is_ascii()
+                && !evidence_url
+                    .bytes()
+                    .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control())
+                && !evidence_url.contains(['@', '?', '#']),
+            "Evidence URL must be a bounded public HTTPS URL"
+        );
         self.accrue_at(now);
         require!(!self.dead, "Reckon is permanently dead");
         let quote = self.checked_quote(confidence_ppm, now);
@@ -223,6 +236,7 @@ impl Reckon {
             agent_stake: quote.agent_stake,
             challenger_stake: quote.challenger_stake,
             evidence_hash,
+            evidence_url,
             published_at_ns: U64(now),
             challenge_deadline_ns: U64(now
                 .checked_add(CHALLENGE_WINDOW_NS)

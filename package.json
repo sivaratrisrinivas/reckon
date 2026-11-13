@@ -18,9 +18,11 @@
     "lint": "eslint . && cargo fmt --manifest-path contract/Cargo.toml --check",
     "audit:high": "npm audit --audit-level=high",
     "build:diagnostic": "cargo build --manifest-path diagnostic-contract/Cargo.toml --release --target wasm32-unknown-unknown --locked",
-    "test:diagnostic-contract": "npm run build:diagnostic && tsx tests/diagnostic-contract.ts"
+    "test:diagnostic-contract": "npm run build:diagnostic && tsx tests/diagnostic-contract.ts",
+    "archive:evidence": "tsx scripts/archive-evidence.ts"
   },
   "dependencies": {
+    "@vercel/blob": "2.9.0",
     "near-api-js": "5.1.1",
     "near-workspaces": "5.0.0",
     "tsx": "4.21.0"
@@ -36,6 +38,9 @@
   "overrides": {
     "near-sandbox": {
       "tar": "7.5.23"
+    },
+    "@vercel/cli-config": {
+      "zod": "4.6.6"
     }
   }
 }

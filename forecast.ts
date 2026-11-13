@@ -52,6 +52,7 @@ export type OnChainPrediction = {
   agent_stake: string;
   challenger_stake: string;
   evidence_hash: string;
+  evidence_url: string;
   published_at_ns: string;
   challenge_deadline_ns: string;
   deadline_ns: string;
@@ -75,6 +76,7 @@ export type PredictionChain = {
     decision: Decision;
     confidence_ppm: number;
     evidence_hash: string;
+    evidence_url: string;
   }): Promise<OnChainPrediction>;
 };
 
@@ -136,6 +138,7 @@ export class ForecastService {
     private readonly options: {
       mode: ProviderMode;
       evidenceDirectory: string;
+      publishEvidence: (hash: string, canonical: string) => Promise<string>;
       budgetPath: string;
       lockPath: string;
       modelApiKey?: string;
@@ -185,7 +188,7 @@ export class ForecastService {
     try {
       contents = await readFile(join(this.options.evidenceDirectory, `${hash}.json`), 'utf8');
     } catch (error) {
-      if (isCode(error, 'ENOENT')) throw new Error('Evidence snapshot was not found');
+      if (isCode(error, 'ENOENT')) throw new Error('Evidence snapshot was not found', {cause: error});
       throw error;
     }
     if (createHash('sha256').update(contents).digest('hex') !== hash) {
@@ -195,7 +198,7 @@ export class ForecastService {
   }
 
   private async run(): Promise<ForecastResult> {
-    let release: (() => Promise<void>) | undefined;
+    let release: (() => Promise<void>) | null | undefined;
     try {
       release = await this.acquireLock();
       if (!release) return {status: 'busy'};
@@ -293,6 +296,10 @@ export class ForecastService {
       const canonical = canonicalJson(snapshot);
       const evidenceHash = createHash('sha256').update(canonical).digest('hex');
       await this.writeSnapshot(evidenceHash, canonical);
+      const evidenceUrl = await this.options.publishEvidence(evidenceHash, canonical);
+      if (!/^https:\/\//.test(evidenceUrl) || evidenceUrl.length > 2048) throw new Error('Evidence hosting returned an invalid public URL');
+      const finalFreshness = await this.revalidateEvidence(evidence);
+      if (!finalFreshness.ok) return {status: 'unavailable', reason: finalFreshness.reason, provider_mode: this.options.mode};
 
       // Recheck on-chain exclusivity after inference and evidence publication; the contract checks it again.
       if (await this.chain.activePrediction()) {
@@ -304,11 +311,12 @@ export class ForecastService {
         decision: decision.decision,
         confidence_ppm: confidencePpm,
         evidence_hash: evidenceHash,
+        evidence_url: evidenceUrl,
       });
       return {
         status: 'published',
         prediction,
-        evidence_url: `/api/evidence/${evidenceHash}`,
+        evidence_url: evidenceUrl,
         provider_mode: this.options.mode,
         model_id: model.modelId,
       };

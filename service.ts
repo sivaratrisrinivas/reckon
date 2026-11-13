@@ -2,8 +2,9 @@ import {createServer} from 'node:http';
 import {existsSync} from 'node:fs';
 import {readFile, readdir} from 'node:fs/promises';
 import {KeyPairEd25519, Worker} from 'near-workspaces';
-import {functionCallAccessKey} from 'near-api-js/lib/transaction';
+import {functionCallAccessKey} from 'near-api-js/lib/transaction.js';
 import {ForecastService, type FixtureScenario, type OnChainPrediction, type PredictionChain, type PredictionQuote, type ProviderMode} from './forecast.js';
+import {publishBlobEvidence} from './evidence-store.js';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
@@ -12,6 +13,8 @@ if (providerMode !== 'fixture' && providerMode !== 'live') throw new Error('RECK
 if (providerMode === 'live' && (!process.env.NEAR_AI_API_KEY || !process.env.NEAR_AI_MODEL)) {
   throw new Error('Live mode requires NEAR_AI_API_KEY and NEAR_AI_MODEL; scripted forecasts are disabled.');
 }
+if (providerMode === 'live' && !process.env.BLOB_READ_WRITE_TOKEN) throw new Error('Live mode requires BLOB_READ_WRITE_TOKEN for public evidence storage.');
+let fixtureStorageUnavailable = false;
 
 const worker = await Worker.init();
 const root = worker.rootAccount;
@@ -42,6 +45,11 @@ const chain: PredictionChain = {
 const forecast = new ForecastService(chain, {
   mode: providerMode,
   evidenceDirectory: '.local/evidence',
+  publishEvidence: async (hash, canonical) => {
+    if (providerMode === 'live') return publishBlobEvidence(hash, canonical, process.env.BLOB_READ_WRITE_TOKEN!);
+    if (fixtureStorageUnavailable) throw new Error('Evidence hosting is unavailable');
+    return `https://evidence.reckon.invalid/${hash}.json`;
+  },
   budgetPath: '.local/runtime/forecast-budget.json',
   lockPath: '.local/runtime/forecast.lock',
   modelApiKey: process.env.NEAR_AI_API_KEY,
@@ -78,14 +86,21 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/config') {
       json(res, 200, {
         network: 'local NEAR sandbox · test money',
+        contract_account_id: contract.accountId,
         provider_mode: providerMode,
-        evidence_hosting: 'local service filesystem',
+        evidence_hosting: providerMode === 'live' ? 'Vercel Blob public storage' : 'local deterministic storage fixture',
         model_calls_per_utc_day: providerMode === 'live' ? 12 : null,
       }, {'Cache-Control': 'no-store'});
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/predictions/active') {
       json(res, 200, {prediction: await forecast.activePrediction()}, {'Cache-Control': 'no-store'});
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/predictions') {
+      const start = url.searchParams.get('start_id') ?? '1';
+      if (!/^[1-9]\d{0,18}$/.test(start)) { json(res, 400, {error: 'Invalid prediction page'}); return; }
+      json(res, 200, await contract.view('list_predictions', {start_id: start, limit: '50'}), {'Cache-Control': 'no-store'});
       return;
     }
     if (req.method === 'POST' && url.pathname === '/api/forecast') {
@@ -118,11 +133,12 @@ const server = createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const scenario = body.scenario;
       const allowed: FixtureScenario[] = ['publish', 'abstain', 'invalid-output', 'unsupported-confidence', 'stale-market', 'invalid-reference', 'unavailable-model', 'slow-publish'];
-      if (providerMode !== 'fixture' || typeof scenario !== 'string' || !allowed.includes(scenario as FixtureScenario)) {
+      if (providerMode !== 'fixture' || typeof scenario !== 'string' || (scenario !== 'unavailable-storage' && !allowed.includes(scenario as FixtureScenario))) {
         json(res, 400, {error: 'Unsupported forecast fixture'});
         return;
       }
-      forecast.setTestScenario(scenario as FixtureScenario);
+      fixtureStorageUnavailable = scenario === 'unavailable-storage';
+      forecast.setTestScenario(fixtureStorageUnavailable ? 'publish' : scenario as FixtureScenario);
       res.writeHead(204).end();
       return;
     }
