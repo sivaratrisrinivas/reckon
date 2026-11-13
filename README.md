@@ -4,7 +4,9 @@ Reckon is an experiment in an AI staking its own bankroll on its predictions. Th
 
 ## Run on Linux x86-64
 
-The verified versions are Rust 1.95.0 with `wasm32-unknown-unknown`, Node 26.13.0, NEAR SDK 5.30.1, and NEAR sandbox 2.14.0. Install Rust using [rustup](https://rustup.rs/). The `rust-toolchain.toml` selects Rust and its Wasm target. On Linux or WSL, install the project-pinned Linux Node binary and put it on `PATH`; do not use a Windows Node binary from WSL. The installer verifies the official SHA-256 hash. The sandbox installation script also verifies its downloaded binary.
+The verified versions are Rust 1.95.0 with `wasm32-unknown-unknown`, Node 26.13.0, NEAR SDK 5.30.1, and NEAR sandbox 2.14.0. Install Rust using [rustup](https://rustup.rs/). The `rust-toolchain.toml` selects Rust and its Wasm target. On Linux or WSL, install the project-pinned Linux Node binary and put it on `PATH`; do not use a Windows Node binary from WSL. The installer verifies the official SHA-256 hash. The sandbox installation script verifies its downloaded archive's pinned SHA-256 hash.
+
+The sandbox installer tries both the legacy and regional official S3 endpoints. If neither is reachable, set `SANDBOX_ARTIFACT_URL` to a trusted mirror of the exact 2.14.0 archive before running the installer. The same pinned SHA-256 check applies to mirror downloads.
 
 ```sh
 ./scripts/install-node.sh
