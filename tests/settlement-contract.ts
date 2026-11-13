@@ -61,6 +61,8 @@ try {
   const equal = await contract.view<{
     outcome: string;
     settlement_status: string;
+    settlement_request_id: string;
+    settlement_requested_at_ns: string;
     settlement_price: {multiplier: string; decimals: number; response_timestamp_ns: string; provider_recency_seconds: number};
     payment: unknown;
   }>('get_prediction', {id: first.id});
@@ -69,6 +71,20 @@ try {
   assert.deepEqual(equal.settlement_price, {multiplier: '340823333', decimals: 8, response_timestamp_ns: equal.settlement_price.response_timestamp_ns, provider_recency_seconds: 300});
   assert.equal(equal.payment, null, 'the agent win requires no outgoing payment');
   assert.equal(await contract.view('active_prediction'), null, 'a settled prediction releases the active slot');
+  const afterEqual = await contract.view<{spendable_bankroll: string; committed_bankroll: string; challenger_custody: string}>('life', {});
+  assert(BigInt(afterEqual.spendable_bankroll) > 100n * NEAR, 'an alive agent receives its committed stake and the losing challenger stake');
+  assert.equal(afterEqual.committed_bankroll, '0');
+  assert.equal(afterEqual.challenger_custody, '0');
+  const duplicateCallback = await oracle.callRaw(contract, 'oracle_on_call', {
+    sender_id: contract.accountId,
+    data: {
+      timestamp: equal.settlement_requested_at_ns,
+      recency_duration_sec: 300,
+      prices: [{asset_id: 'wrap.near', price: {multiplier: '340823333', decimals: 8}}],
+    },
+    msg: equal.settlement_request_id,
+  }, {gas: 250n * 10n ** 12n});
+  assert.equal(duplicateCallback.succeeded, false, 'a duplicate callback cannot change or pay a resolved round again');
   await assert.rejects(contract.call(contract, 'request_settlement', {prediction_id: first.id}), 'a completed result cannot be requested or changed again');
 
   const storageBeforeRound = BigInt((await contract.accountView()).storage_usage);
@@ -126,18 +142,52 @@ try {
   await setOracleScenario('stalled');
   const stalledReceipt = await contract.callRaw(contract, 'request_settlement', {prediction_id: third.id}, {gas: 250n * 10n ** 12n});
   assert.equal(stalledReceipt.succeeded, false, 'the fixture simulates an oracle call that fails without delivering a callback');
-  const pending = await contract.view<{settlement_status: string; settlement_request_id: string | null}>('get_prediction', {id: third.id});
+  const pending = await contract.view<{
+    settlement_status: string;
+    settlement_request_id: string | null;
+    settlement_requested_at_ns: string | null;
+  }>('get_prediction', {id: third.id});
   assert.equal(pending.settlement_status, 'observing');
   assert(pending.settlement_request_id, 'the request identity is recorded while observation is pending');
+  const wrongReceiverCallback = await oracle.callRaw(contract, 'oracle_on_call', {
+    sender_id: root.accountId,
+    data: {
+      timestamp: pending.settlement_requested_at_ns,
+      recency_duration_sec: 300,
+      prices: [{asset_id: 'wrap.near', price: {multiplier: '340823334', decimals: 8}}],
+    },
+    msg: pending.settlement_request_id,
+  }, {gas: 250n * 10n ** 12n});
+  assert.equal(wrongReceiverCallback.succeeded, false, 'a configured provider cannot callback for a different receiver');
   await assert.rejects(contract.call(contract, 'request_settlement', {prediction_id: third.id}), 'a stalled request cannot race another observation');
   await assert.rejects(contract.call(contract, 'void_unsettled_prediction', {prediction_id: third.id}), 'a stalled request cannot be voided before the measured window closes');
   await worker.provider.fastForward(120);
+  const lateCallback = await oracle.callRaw(contract, 'oracle_on_call', {
+    sender_id: contract.accountId,
+    data: {
+      timestamp: pending.settlement_requested_at_ns,
+      recency_duration_sec: 300,
+      prices: [{asset_id: 'wrap.near', price: {multiplier: '340823334', decimals: 8}}],
+    },
+    msg: pending.settlement_request_id,
+  }, {gas: 250n * 10n ** 12n});
+  assert.equal(lateCallback.succeeded, false, 'a callback received after the cutoff cannot beat a safe void');
   const refundReceipt = await contract.callRaw(contract, 'void_unsettled_prediction', {prediction_id: third.id}, {gas: 250n * 10n ** 12n});
   assert.equal(refundReceipt.succeeded, true, refundReceipt.summary());
   const voided = await contract.view<{outcome: string; payment: {status: string; amount: string} | null}>('get_prediction', {id: third.id});
   assert.equal(voided.outcome, 'void');
   assert.equal(voided.payment?.status, 'paid', 'void refunds the challenger through a confirmed transfer receipt');
   assert.equal(voided.payment?.amount, third.challenger_stake);
+  const duplicateVoidedCallback = await oracle.callRaw(contract, 'oracle_on_call', {
+    sender_id: contract.accountId,
+    data: {
+      timestamp: pending.settlement_requested_at_ns,
+      recency_duration_sec: 300,
+      prices: [{asset_id: 'wrap.near', price: {multiplier: '340823334', decimals: 8}}],
+    },
+    msg: pending.settlement_request_id,
+  }, {gas: 250n * 10n ** 12n});
+  assert.equal(duplicateVoidedCallback.succeeded, false, 'a late callback cannot resurrect a voided prediction');
   const afterVoid = await contract.view<{committed_bankroll: string; challenger_custody: string}>('life');
   assert.equal(afterVoid.committed_bankroll, '0', 'voiding releases the agent commitment');
   assert.equal(afterVoid.challenger_custody, '0', 'voiding clears custody after recording the refund liability');
@@ -172,6 +222,58 @@ try {
   }
   const finalSummary = await contract.view<{published: string; valid_outcomes: string; correct_outcomes: string}>('prediction_summary', {});
   assert.deepEqual(finalSummary, {published: '9', valid_outcomes: '3', correct_outcomes: '2'}, 'malformed, wrong-asset, stale, and stale-identity callbacks cannot enter accuracy');
+
+  const deadKey = KeyPairEd25519.fromRandom();
+  const deadContract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
+    initialBalance: 120n * NEAR,
+    method: 'new',
+    args: {
+      initial_bankroll: (100n * NEAR).toString(),
+      operational_reserve: (20n * NEAR).toString(),
+      idle_life_ns: '120000000000',
+      prediction_public_key: deadKey.getPublicKey().toString(),
+      oracle_account_id: oracle.accountId,
+    },
+  });
+  await deadContract.batch(deadContract).addKey(
+    deadKey.getPublicKey(),
+    functionCallAccessKey(deadContract.accountId, ['publish_prediction'], 5n * NEAR),
+  ).transact();
+  const deadPrediction = await deadContract.call<{id: string; agent_stake: string; challenger_stake: string}>(
+    deadContract,
+    'publish_prediction',
+    {
+      reference_multiplier: '340823333',
+      reference_decimals: 8,
+      decision: 'no',
+      confidence_ppm: 850_000,
+      evidence_hash: '000000000000000000000000000000000000000000000000000000000000000a',
+      evidence_url: 'https://evidence.reckon.invalid/dead-agent.json',
+    },
+    {signWithKey: deadKey},
+  );
+  const deadChallenger = await root.createSubAccount('dead-agent-challenger', {initialBalance: 10n * NEAR});
+  await deadChallenger.call(deadContract, 'challenge_prediction', {prediction_id: deadPrediction.id}, {attachedDeposit: BigInt(deadPrediction.challenger_stake)});
+  const retiredBeforeDeath = BigInt((await deadContract.view<{retired_bankroll: string}>('life', {})).retired_bankroll);
+  await worker.provider.fastForward(300);
+  await setOracleScenario('equal');
+  const deadRoundReceipt = await deadContract.callRaw(deadContract, 'request_settlement', {prediction_id: deadPrediction.id}, {gas: 250n * 10n ** 12n});
+  assert.equal(deadRoundReceipt.succeeded, true, deadRoundReceipt.summary());
+  const afterDeadWin = await deadContract.view<{
+    dead: boolean;
+    retired_bankroll: string;
+    spendable_bankroll: string;
+    committed_bankroll: string;
+    challenger_custody: string;
+  }>('life', {});
+  assert.equal(afterDeadWin.dead, true, 'the short-lived agent dies before the valid result is applied');
+  assert(
+    BigInt(afterDeadWin.retired_bankroll) - retiredBeforeDeath >= BigInt(deadPrediction.agent_stake) + BigInt(deadPrediction.challenger_stake),
+    'a correct forecast cannot revive a dead agent; both stakes are retired',
+  );
+  assert.equal(afterDeadWin.spendable_bankroll, '0');
+  assert.equal(afterDeadWin.committed_bankroll, '0');
+  assert.equal(afterDeadWin.challenger_custody, '0');
 
   console.log(`COMPLETE_ROUND_MEASUREMENT ${JSON.stringify(roundMeasurement)}`);
   console.log('Oracle validation, request serialization, equality, payment receipts, void refunds, unchallenged results, and accuracy summary passed');

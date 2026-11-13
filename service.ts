@@ -93,6 +93,8 @@ async function runSettlementKeeper(): Promise<void> {
     if (now >= cutoff) {
       await contract.callRaw(contract, 'void_unsettled_prediction', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
     } else if (now >= deadline && prediction.settlement_status === 'waiting') {
+      // This block-time read only schedules a transaction; the contract checks its execution time.
+      // If the request arrives too late, the next keeper tick can void after the cutoff.
       await contract.callRaw(contract, 'request_settlement', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
     }
   } catch {

@@ -101,9 +101,12 @@ function renderSettlementState(prediction) {
         : ' No outgoing payment was required.';
     state.textContent = `Resolved ${prediction.outcome.toUpperCase()}${settlementPrice}.${payment}`;
     showStatus(`Prediction #${prediction.id} resolved ${prediction.outcome.toUpperCase()}.`, 'resolved');
-  } else if (prediction.settlement_status === 'observing' || BigInt(Date.now()) * 1_000_000n >= BigInt(prediction.deadline_ns)) {
-    state.textContent = `The deadline passed. The keeper requested the declared oracle and is waiting for a valid observation, for up to ${settlementWindowSeconds()} seconds.`;
+  } else if (prediction.settlement_status === 'observing') {
+    state.textContent = `The keeper requested the declared oracle. A valid response must complete before the ${settlementWindowSeconds()}-second cutoff. The contract uses block time; dates on this device are estimates.`;
     showStatus(`Prediction #${prediction.id} is pending oracle observation.`, 'settling');
+  } else if (BigInt(Date.now()) * 1_000_000n >= BigInt(prediction.deadline_ns)) {
+    state.textContent = 'This device estimates that the deadline has passed. The contract uses block time; the keeper requests the declared oracle after the on-chain deadline.';
+    showStatus(`Prediction #${prediction.id} is waiting for the on-chain deadline and keeper request.`, 'settling');
   } else {
     state.textContent = 'The prediction resolves automatically after its five-minute deadline. No result-reveal action is needed.';
     showStatus(`Prediction #${prediction.id} is published. Its reference, confidence, stakes, and deadlines are fixed.`, 'published');

@@ -400,11 +400,7 @@ impl Reckon {
             .cloned()
             .expect("Prediction does not exist");
         let now = env::block_timestamp();
-        let settlement_cutoff = prediction
-            .deadline_ns
-            .0
-            .checked_add(SETTLEMENT_WINDOW_NS)
-            .expect("Settlement cutoff overflow");
+        let settlement_cutoff = settlement_cutoff_ns(prediction.deadline_ns.0);
         require!(
             now >= prediction.deadline_ns.0,
             "Prediction deadline has not passed"
@@ -474,14 +470,10 @@ impl Reckon {
         );
 
         let now = env::block_timestamp();
-        let cutoff = prediction
-            .deadline_ns
-            .0
-            .checked_add(SETTLEMENT_WINDOW_NS)
-            .expect("Settlement cutoff overflow");
+        let cutoff = settlement_cutoff_ns(prediction.deadline_ns.0);
         require!(
-            now <= cutoff,
-            "Oracle response arrived after the settlement window"
+            now < cutoff,
+            "Oracle response did not complete before the settlement cutoff"
         );
         let requested_at = prediction
             .settlement_requested_at_ns
@@ -579,11 +571,7 @@ impl Reckon {
             .cloned()
             .expect("Prediction does not exist");
         let now = env::block_timestamp();
-        let settlement_cutoff = prediction
-            .deadline_ns
-            .0
-            .checked_add(SETTLEMENT_WINDOW_NS)
-            .expect("Settlement cutoff overflow");
+        let settlement_cutoff = settlement_cutoff_ns(prediction.deadline_ns.0);
         require!(now >= settlement_cutoff, "Settlement window is still open");
         self.accrue_at(now);
 
@@ -850,4 +838,10 @@ fn power_of_ten(exponent: u8) -> U256 {
         result *= U256::from(10u8);
     }
     result
+}
+
+fn settlement_cutoff_ns(deadline_ns: u64) -> u64 {
+    deadline_ns
+        .checked_add(SETTLEMENT_WINDOW_NS)
+        .expect("Settlement cutoff overflow")
 }
