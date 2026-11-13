@@ -1,0 +1,204 @@
+{
+  "kind": "technical-diagnostic",
+  "started_at": "2026-11-13T00:04:33.640Z",
+  "status": "observed",
+  "observation_time_verified": false,
+  "oracle_transaction": "EYGA7ozYLjAWd3eAa6jADx9R8UhCVJj9iLvKpnHHbUt6",
+  "oracle_elapsed_ms": 32691,
+  "oracle_fee_near": "0.0015897348008526",
+  "oracle_worker": {
+    "success": true,
+    "payment_charged": "1363400100000000000000",
+    "payment_refunded": "18636599900000000000000",
+    "resources_used": {
+      "instructions": 1014625,
+      "time_ms": 3634,
+      "compile_time_ms": null
+    }
+  },
+  "callback_observed_elapsed_ms": 36112,
+  "evidence": {
+    "candles_provider": "Coinbase NEAR-USD ONE_MINUTE",
+    "candles_fetched_at": "2026-11-13T00:05:10.113Z",
+    "completed_candles": [
+      {
+        "start": "1794528240",
+        "low": "3.4183",
+        "high": "3.4234",
+        "open": "3.4234",
+        "close": "3.4202",
+        "volume": "3074.962"
+      },
+      {
+        "start": "1794528180",
+        "low": "3.4195",
+        "high": "3.424",
+        "open": "3.4195",
+        "close": "3.424",
+        "volume": "620.128"
+      },
+      {
+        "start": "1794528120",
+        "low": "3.418",
+        "high": "3.4205",
+        "open": "3.4185",
+        "close": "3.418",
+        "volume": "1353.803"
+      },
+      {
+        "start": "1794528060",
+        "low": "3.4168",
+        "high": "3.4204",
+        "open": "3.4201",
+        "close": "3.4171",
+        "volume": "1744.504"
+      },
+      {
+        "start": "1794528000",
+        "low": "3.4171",
+        "high": "3.4211",
+        "open": "3.4171",
+        "close": "3.4206",
+        "volume": "6007.165"
+      },
+      {
+        "start": "1794527940",
+        "low": "3.4169",
+        "high": "3.4184",
+        "open": "3.4182",
+        "close": "3.4182",
+        "volume": "357.206"
+      },
+      {
+        "start": "1794527880",
+        "low": "3.418",
+        "high": "3.419",
+        "open": "3.418",
+        "close": "3.4186",
+        "volume": "5602.837"
+      },
+      {
+        "start": "1794527820",
+        "low": "3.4171",
+        "high": "3.4185",
+        "open": "3.4182",
+        "close": "3.4185",
+        "volume": "985.649"
+      },
+      {
+        "start": "1794527760",
+        "low": "3.4166",
+        "high": "3.4199",
+        "open": "3.4173",
+        "close": "3.4182",
+        "volume": "7217.446"
+      }
+    ],
+    "oracle_provider": "price-oracle.testnet",
+    "oracle_callback": {
+      "nonce": "5ed1d07b-5a98-42a0-99d2-b8c6dc555cc4",
+      "data": {
+        "timestamp": "1794528303030089243",
+        "recency_duration_sec": 300,
+        "prices": [
+          {
+            "asset_id": "wrap.near",
+            "price": {
+              "multiplier": "342566666",
+              "decimals": 8
+            }
+          }
+        ]
+      },
+      "callback_block_timestamp_ns": "1794528303442093391"
+    },
+    "oracle_report_validation": {
+      "multiplier": "342566666",
+      "decimals": 8,
+      "responseTimestampNs": "1794528303030089243",
+      "providerRecencySeconds": 300,
+      "validatedAtMs": 1794528310112,
+      "maxProviderReportAgeMs": 600000,
+      "responseAgeNs": "7081910757",
+      "providerReportAgeUpperBoundNs": "307081910757",
+      "externalObservationTimeVerified": false
+    },
+    "diagnostic_max_provider_report_age_ms": 600000,
+    "comparison": {
+      "reference_usd": "3.42566666",
+      "latest_candle_close_usd": "3.42020000",
+      "reference_minus_candle_usd": "0.00546666"
+    },
+    "question_and_rules": "Will the NEAR/USD settlement price be strictly above the reference price? The prediction deadline is five minutes after publication. Settlement uses the first successful valid oracle request initiated after the deadline and completed within a bounded settlement window. Caller timing and provider caching affect the observation; it is not an exact historical expiry price. Equal prices resolve to no. If no valid result arrives in the window, the prediction is void."
+  },
+  "model_request": {
+    "model": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "system_prompt": "Return a structured judgment using only the supplied evidence. Confidence is probability that your selected side is correct. You may abstain with null confidence when the evidence is insufficient.",
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "forecast",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "decision": {
+              "type": "string",
+              "enum": [
+                "yes",
+                "no",
+                "abstain"
+              ]
+            },
+            "confidence": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "decision",
+            "confidence",
+            "justification"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "max_tokens": 512
+  },
+  "model_request_id": "300a7d27-3f2e-4bbb-aa63-245387b7af8f",
+  "model_latency_ms": 1709,
+  "model_returned": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  "model_usage": {
+    "prompt_tokens": 1047,
+    "total_tokens": 1172,
+    "completion_tokens": 125,
+    "prompt_tokens_details": {
+      "cached_tokens": 64
+    }
+  },
+  "model_finish_reason": "stop",
+  "model_content": "{\"decision\": \"no\", \"confidence\": 0.95, \"justification\": \"The reference price is 3.42566666 USD, and the latest candle close is 3.42020000 USD. Since 3.42020000 is not strictly above 3.42566666, the condition is not met. The oracle report confirms the reference price, and the candle data is valid and within the settlement window. Therefore, the settlement price is not strictly above the reference price.\"}",
+  "oracle_report_validation_at_completion": {
+    "multiplier": "342566666",
+    "decimals": 8,
+    "responseTimestampNs": "1794528303030089243",
+    "providerRecencySeconds": 300,
+    "validatedAtMs": 1794528311822,
+    "maxProviderReportAgeMs": 600000,
+    "responseAgeNs": "8791910757",
+    "providerReportAgeUpperBoundNs": "308791910757",
+    "externalObservationTimeVerified": false
+  },
+  "model": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  "model_response": {
+    "decision": "no",
+    "confidence": 0.95,
+    "justification": "The reference price is 3.42566666 USD, and the latest candle close is 3.42020000 USD. Since 3.42020000 is not strictly above 3.42566666, the condition is not met. The oracle report confirms the reference price, and the candle data is valid and within the settlement window. Therefore, the settlement price is not strictly above the reference price."
+  }
+}

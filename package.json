@@ -9,7 +9,7 @@
   "scripts": {
     "start": "tsx service.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx tests/diagnostic-validation.ts && npm run test:contract && playwright test",
+    "test": "node --import tsx tests/diagnostic-validation.ts && node --import tsx tests/diagnostic-callback.ts && node --import tsx tests/diagnostic-code.ts && npm run test:contract && playwright test",
     "test:contract": "tsx tests/contract.ts",
     "prestart": "sh scripts/check-local.sh",
     "pretest": "sh scripts/check-local.sh",

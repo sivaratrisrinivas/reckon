@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { comparePrices, validateModel, validateOracleReport } from './validate.js';
+import { waitForCallback } from './callback.js';
+import { assertScratchCode, assertScratchProvider } from './code.js';
 
 const exec = promisify(execFile);
 const RPC = 'https://rpc.testnet.near.org';
@@ -32,8 +34,14 @@ async function main() {
   const outcome: Record<string, unknown> = {kind: 'technical-diagnostic', started_at: new Date(started).toISOString(), status: 'unavailable', observation_time_verified: false};
   let modelStarted: number | undefined;
   try {
+    const localCode = await readFile('diagnostic-contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm');
+    const deployedCode = await json(RPC, {jsonrpc: '2.0', id: 'diagnostic', method: 'query', params: {request_type: 'view_code', finality: 'final', account_id: account}});
+    assertScratchCode(localCode, deployedCode);
+    const deployedProvider = await json(RPC, {jsonrpc: '2.0', id: 'diagnostic', method: 'query', params: {request_type: 'call_function', finality: 'final', account_id: account, method_name: 'oracle_id', args_base64: 'e30='}});
+    assertScratchProvider(deployedProvider);
     const cli = './.local/near-cli/node_modules/.bin/near';
     let output: string;
+    const oracleStarted = performance.now();
     try {
       const result = await exec(cli, ['contract', 'call-function', 'as-transaction', account, 'request', 'json-args', JSON.stringify({nonce}), 'prepaid-gas', '250 Tgas', 'attached-deposit', '0 NEAR', 'sign-as', account, 'network-config', 'testnet', 'sign-with-legacy-keychain', 'send'], {timeout: 120_000, maxBuffer: 2_000_000});
       output = result.stdout + result.stderr;
@@ -44,7 +52,7 @@ async function main() {
     const transaction = /Transaction ID:\s*([1-9A-HJ-NP-Za-km-z]+)/.exec(output)?.[1];
     if (!transaction) throw new Error('Oracle transaction did not report an ID');
     outcome.oracle_transaction = transaction;
-    outcome.oracle_elapsed_ms = Date.now() - started;
+    outcome.oracle_elapsed_ms = Math.round(performance.now() - oracleStarted);
     outcome.oracle_fee_near = /Transaction fee:\s*([0-9.]+) NEAR/.exec(output)?.[1] ?? null;
     for (const line of output.split('\n')) {
       if (!line.includes('EVENT_JSON:')) continue;
@@ -56,18 +64,15 @@ async function main() {
         }
       } catch { /* A malformed event does not establish a cost. */ }
     }
-    let callback: unknown;
-    const deadline = Math.min(started + 120_000, Date.now() + 60_000);
-    while (Date.now() < deadline) {
-      const rpc = await json(RPC, {jsonrpc: '2.0', id: 'diagnostic', method: 'query', params: {request_type: 'call_function', finality: 'final', account_id: account, method_name: 'callback', args_base64: 'e30='}}, {}, Math.max(1, Math.min(30_000, deadline - Date.now())));
+    const deadline = oracleStarted + 120_000;
+    const callback = await waitForCallback({nonce, deadlineMs: deadline, now: () => performance.now(), read: async remainingMs => {
+      const rpc = await json(RPC, {jsonrpc: '2.0', id: 'diagnostic', method: 'query', params: {request_type: 'call_function', finality: 'final', account_id: account, method_name: 'callback', args_base64: 'e30='}}, {}, Math.max(1, Math.min(30_000, remainingMs)));
       if (!object(rpc) || !object(rpc.result) || !Array.isArray(rpc.result.result) || !rpc.result.result.every((v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 255)) throw new Error('Oracle callback unavailable');
       const encoded: unknown = JSON.parse(Buffer.from(rpc.result.result).toString('utf8'));
-      callback = typeof encoded === 'string' ? JSON.parse(encoded) : null;
-      if (object(callback) && callback.nonce === nonce) break;
-      await new Promise(resolve => setTimeout(resolve, Math.max(0, Math.min(1_000, deadline - Date.now()))));
-    }
-    if (!object(callback) || callback.nonce !== nonce || typeof callback.callback_block_timestamp_ns !== 'string' || !/^\d+$/.test(callback.callback_block_timestamp_ns) || BigInt(callback.callback_block_timestamp_ns) < BigInt(started) * 1_000_000n) throw new Error('Oracle callback missing, mismatched or older than request');
-    outcome.callback_observed_elapsed_ms = Date.now() - started;
+      return typeof encoded === 'string' ? JSON.parse(encoded) : null;
+    }});
+    if (typeof callback.callback_block_timestamp_ns !== 'string' || !/^\d+$/.test(callback.callback_block_timestamp_ns) || BigInt(callback.callback_block_timestamp_ns) === 0n) throw new Error('Oracle callback timestamp malformed');
+    outcome.callback_observed_elapsed_ms = Math.round(performance.now() - oracleStarted);
     // Diagnostic-only bound: provider cache allowance plus elapsed time since its response.
     const report = validateOracleReport(callback.data, Date.now(), 600_000);
     if (!report.ok) throw new Error(report.reason);
@@ -87,11 +92,11 @@ async function main() {
     const comparison = comparePrices(report.value.multiplier, report.value.decimals, completed[0].close);
     const evidence = {candles_provider: 'Coinbase NEAR-USD ONE_MINUTE', candles_fetched_at: new Date().toISOString(), completed_candles: completed, oracle_provider: 'price-oracle.testnet', oracle_callback: callback, oracle_report_validation: reportAtInference.value, diagnostic_max_provider_report_age_ms: 600_000, comparison, question_and_rules: QUESTION};
     outcome.evidence = evidence;
-    const requestStarted = Date.now();
+    const requestStarted = performance.now();
     modelStarted = requestStarted;
     outcome.model_request = {model, system_prompt: SYSTEM, response_format: FORMAT, max_tokens: 512};
     const modelResult = await json('https://cloud-api.near.ai/v1/chat/completions', {model, messages: [{role: 'system', content: SYSTEM}, {role: 'user', content: JSON.stringify(evidence)}], response_format: FORMAT, max_tokens: 512}, {Authorization: `Bearer ${key}`}, 30_000, response => { outcome.model_request_id = response.headers.get('x-request-id'); });
-    outcome.model_latency_ms = Date.now() - requestStarted;
+    outcome.model_latency_ms = Math.round(performance.now() - requestStarted);
     if (object(modelResult)) {
       outcome.model_returned = modelResult.model ?? null;
       outcome.model_usage = modelResult.usage ?? null;
@@ -112,7 +117,7 @@ async function main() {
     outcome.model_response = validated.value;
     outcome.status = 'observed';
   } catch (error) {
-    if (modelStarted !== undefined && outcome.model_latency_ms === undefined) outcome.model_latency_ms = Date.now() - modelStarted;
+    if (modelStarted !== undefined && outcome.model_latency_ms === undefined) outcome.model_latency_ms = Math.round(performance.now() - modelStarted);
     outcome.reason = error instanceof Error && error.name === 'TimeoutError' ? 'Provider timed out' : error instanceof Error ? error.message : 'Unknown diagnostic failure';
   }
   const path = `.local/diagnostic-runs/${started}-${nonce}.json`;

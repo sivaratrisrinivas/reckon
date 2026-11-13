@@ -44,6 +44,8 @@ When a separate synthetic missing-data request constrained the schema itself to 
 
 The NEAR Builders dashboard displayed "usage unavailable" for the claimed credit key when checked on 13 November 2026 (IST). The individual provider charges therefore remain unverified; the token-price calculations above are estimates, and the timed-out request may also have incurred a charge.
 
+For issue #3's feasibility work, the user accepted proceeding with the documented token-rate estimates and deferring verification of actual model billing. This does not establish actual billed amounts or remove the need to budget and limit model spending.
+
 The [NEAR AI compatibility guide](https://docs.near.ai/cloud/guides/openai-compatibility) documents an `X-Request-Id` response header for support. New diagnostic runs record that opaque request ID when the provider returns one, including HTTP error responses. It can help identify a request when asking the provider about usage; it is not a billing receipt and is absent if no response arrives.
 
 ## Independent abstention and latency samples: 13 November 2026 IST
