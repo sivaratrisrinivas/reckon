@@ -10,6 +10,14 @@ async function scenario(request: APIRequestContext, value: string): Promise<void
   await request.post('/test/reset-forecast-limits');
 }
 
+function formatNear(amount: string): string {
+  const near = 10n ** 24n;
+  const value = BigInt(amount);
+  const whole = value / near;
+  const fraction = (value % near).toString().padStart(24, '0').replace(/0+$/, '');
+  return `${whole}.${fraction || '0'} NEAR`;
+}
+
 test('invalid evidence and abstention publish nothing; one browser request publishes fixed terms and downloadable evidence', async ({page, request}) => {
   await expect((await request.get('/api/predictions/active')).status()).toBe(200);
   expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
@@ -37,6 +45,8 @@ test('invalid evidence and abstention publish nothing; one browser request publi
   await scenario(request, 'slow-publish');
   await page.goto('/');
   await expect(page.getByText('FORECAST INPUTS · SCRIPTED LOCAL FIXTURES')).toBeVisible();
+  const walletBefore = await (await request.get('/api/wallet')).json();
+  await expect(page.locator('#wallet-state')).toContainText(walletBefore.account_id);
   const before = (await (await request.get('/test/forecast-stats')).json()).fixture_model_calls;
   await page.getByRole('button', {name: 'Ask Reckon'}).click();
   await expect(page.getByRole('status').filter({hasText: 'Checking recent market evidence'})).toBeVisible();
@@ -58,6 +68,33 @@ test('invalid evidence and abstention publish nothing; one browser request publi
   expect(BigInt(prediction.deadline_ns) - BigInt(prediction.published_at_ns)).toBe(300_000_000_000n);
   expect(prediction.agent_stake).toBeTruthy();
   expect(prediction.challenger_stake).toBeTruthy();
+
+  await expect(page.locator('#challenge-panel')).toBeVisible();
+  await expect(page.locator('#challenge-stake')).toHaveText(formatNear(prediction.challenger_stake));
+  await expect(page.locator('#challenge-return')).toHaveText(formatNear((BigInt(prediction.challenger_stake) + BigInt(prediction.agent_stake)).toString()));
+  await expect(page.locator('#challenger-side')).toHaveText(prediction.decision === 'yes' ? 'NO' : 'YES');
+  await expect(page.locator('#challenge-confidence')).toContainText(`${(prediction.confidence_ppm / 10_000).toFixed(2)}%`);
+  await expect(page.locator('#challenge-deadline')).not.toBeEmpty();
+  await expect(page.locator('#challenge-network')).toContainText('Local NEAR sandbox · test money');
+  await expect(page.locator('#challenge-loss')).toContainText('You can lose the full stake');
+  await expect(page.locator('#settlement-rule')).toContainText('first successful valid oracle request initiated after the prediction deadline');
+  await page.getByRole('button', {name: 'Challenge Prediction'}).click();
+  const walletApproval = page.getByRole('dialog', {name: 'Local wallet approval'});
+  await expect(walletApproval).toBeVisible();
+  await expect(walletApproval.locator('#approval-stake')).toHaveText(formatNear(prediction.challenger_stake));
+  await expect(walletApproval.locator('#approval-return')).toHaveText(formatNear((BigInt(prediction.challenger_stake) + BigInt(prediction.agent_stake)).toString()));
+  await expect(walletApproval.locator('#approval-side')).toHaveText(prediction.decision === 'yes' ? 'NO' : 'YES');
+  await expect(walletApproval.locator('#approval-network')).toContainText('Local NEAR sandbox · test money');
+  await expect(walletApproval.locator('#approval-loss')).toContainText('You can lose the full stake');
+  await expect(walletApproval.locator('#approval-settlement-rule')).toBeVisible();
+  await walletApproval.getByRole('button', {name: 'Approve stake in local wallet'}).click();
+  await expect(page.locator('#forecast-status')).toContainText('accepted on chain', {timeout: 30_000});
+  await expect(page.locator('#transaction-state')).toContainText('confirmed; the contract accepted');
+  const accepted = (await (await request.get('/api/predictions/active')).json()).prediction;
+  expect(accepted.challenger_account_id).toBe(walletBefore.account_id);
+  expect(accepted.agent_stake_committed).toBe(true);
+  expect(BigInt((await (await request.get('/api/wallet')).json()).available_balance)).toBeLessThan(BigInt(walletBefore.available_balance));
+  await expect(page.locator('#challenge-panel')).toBeHidden();
 
   expect(published.evidence_url).toBe(prediction.evidence_url);
   const downloadUrl = await page.getByRole('link', {name: 'Download evidence snapshot'}).getAttribute('href');

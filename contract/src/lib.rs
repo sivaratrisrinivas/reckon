@@ -29,6 +29,8 @@ const MAX_PREDICTION_PAGE_SIZE: u64 = 50;
 pub struct Reckon {
     initial_bankroll: u128,
     spendable: u128,
+    committed_bankroll: u128,
+    challenger_custody: u128,
     retired: u128,
     operational_reserve: u128,
     idle_life_ns: u64,
@@ -45,6 +47,8 @@ pub struct Reckon {
 pub struct Life {
     initial_bankroll: U128,
     spendable_bankroll: U128,
+    committed_bankroll: U128,
+    challenger_custody: U128,
     retired_bankroll: U128,
     operational_reserve: U128,
     remaining_life_ns: U64,
@@ -68,6 +72,9 @@ pub struct Prediction {
     published_at_ns: U64,
     challenge_deadline_ns: U64,
     deadline_ns: U64,
+    challenger_account_id: Option<String>,
+    challenged_at_ns: Option<U64>,
+    agent_stake_committed: bool,
 }
 
 #[near(serializers = [json])]
@@ -128,6 +135,8 @@ impl Reckon {
         Self {
             initial_bankroll: initial_bankroll.0,
             spendable: initial_bankroll.0,
+            committed_bankroll: 0,
+            challenger_custody: 0,
             retired: 0,
             operational_reserve: operational_reserve.0,
             idle_life_ns: idle_life_ns.0,
@@ -155,6 +164,8 @@ impl Reckon {
         Life {
             initial_bankroll: U128(self.initial_bankroll),
             spendable_bankroll: U128(spendable),
+            committed_bankroll: U128(self.committed_bankroll),
+            challenger_custody: U128(self.challenger_custody),
             retired_bankroll: U128(retired),
             operational_reserve: U128(self.operational_reserve),
             remaining_life_ns: U64(remaining),
@@ -244,9 +255,77 @@ impl Reckon {
             deadline_ns: U64(now
                 .checked_add(PREDICTION_HORIZON_NS)
                 .expect("Prediction deadline overflow")),
+            challenger_account_id: None,
+            challenged_at_ns: None,
+            agent_stake_committed: false,
         };
         self.predictions.insert(id, prediction.clone());
         self.active_prediction_id = Some(id);
+        prediction
+    }
+
+    // Panics reject the payable call atomically, so NEAR returns an invalid take's deposit.
+    #[payable]
+    pub fn challenge_prediction(&mut self, prediction_id: U64) -> Prediction {
+        let challenger = env::predecessor_account_id();
+        require!(
+            challenger == env::signer_account_id(),
+            "A challenger must call directly from their own account"
+        );
+        require!(
+            challenger != env::current_account_id(),
+            "Reckon cannot challenge its own prediction"
+        );
+        require!(
+            self.active_prediction_id == Some(prediction_id.0),
+            "This prediction is not the active challenge"
+        );
+
+        let mut prediction = self
+            .predictions
+            .get(&prediction_id.0)
+            .cloned()
+            .expect("Prediction does not exist");
+        require!(
+            prediction.challenger_account_id.is_none(),
+            "The challenger position is already taken"
+        );
+        let now = env::block_timestamp();
+        require!(
+            now < prediction.challenge_deadline_ns.0,
+            "The challenge window has closed"
+        );
+        require!(
+            env::attached_deposit().as_yoctonear() == prediction.challenger_stake.0,
+            "Attached deposit must exactly match the quoted challenger stake"
+        );
+
+        self.accrue_at(now);
+        require!(!self.dead, "Reckon is permanently dead");
+        require!(
+            prediction.agent_stake.0 <= self.spendable,
+            "Reckon no longer has sufficient spendable bankroll"
+        );
+        let current_risk_cap = U256::from(self.spendable) * U256::from(MAX_AGENT_RISK_BPS)
+            / U256::from(BASIS_POINTS);
+        require!(
+            U256::from(prediction.agent_stake.0) <= current_risk_cap,
+            "The quoted agent stake exceeds the current risk cap"
+        );
+
+        self.spendable -= prediction.agent_stake.0;
+        self.committed_bankroll = self
+            .committed_bankroll
+            .checked_add(prediction.agent_stake.0)
+            .expect("Committed bankroll overflow");
+        self.challenger_custody = self
+            .challenger_custody
+            .checked_add(prediction.challenger_stake.0)
+            .expect("Challenger custody overflow");
+        prediction.challenger_account_id = Some(challenger.to_string());
+        prediction.challenged_at_ns = Some(U64(now));
+        prediction.agent_stake_committed = true;
+        self.predictions.insert(prediction_id.0, prediction.clone());
         prediction
     }
 

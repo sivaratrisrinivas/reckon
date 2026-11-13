@@ -8,10 +8,11 @@
   },
   "scripts": {
     "start": "tsx service.ts",
+    "build:browser": "sh scripts/build-browser.sh",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx tests/diagnostic-validation.ts && node --import tsx tests/diagnostic-callback.ts && node --import tsx tests/diagnostic-code.ts && npm run test:contract && playwright test",
     "test:contract": "tsx tests/contract.ts",
-    "prestart": "sh scripts/check-local.sh",
+    "prestart": "sh scripts/check-local.sh && npm run build:browser",
     "pretest": "sh scripts/check-local.sh",
     "pretest:contract": "sh scripts/check-local.sh",
     "build:contract": "cargo build --manifest-path contract/Cargo.toml --release --target wasm32-unknown-unknown --locked",
@@ -31,6 +32,7 @@
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.65.0",
     "@types/node": "25.2.3",
+    "esbuild": "0.27.7",
     "eslint": "10.14.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.72.2"

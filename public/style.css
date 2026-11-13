@@ -43,6 +43,7 @@ header {
 .environment { display: grid; gap: .2rem; text-align: right; }
 .network, .provider-label, .eyebrow { color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .13em; }
 .provider-label { color: var(--accent); }
+.wallet-state, .wallet-balance { color: var(--muted); font-size: .72rem; }
 
 main { padding: 4rem 2rem 2rem; }
 .intro { max-width: 670px; }
@@ -101,7 +102,7 @@ p { color: var(--muted); }
 
 .primary:hover:not(:disabled) { background: #e5f6d1; }
 .primary:disabled { cursor: progress; opacity: .72; }
-.primary:focus-visible, a:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+.primary:focus-visible, .secondary:focus-visible, a:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
 .forecast-status { min-height: 1.7em; margin: .75rem 0 0; }
 .forecast-status[data-kind="thinking"] { color: var(--accent); }
 .forecast-status[data-kind="published"] { color: var(--success); }
@@ -110,6 +111,22 @@ p { color: var(--muted); }
 .prediction { margin-top: 2rem; padding: 1.5rem; border: 1px solid var(--border); background: var(--surface-raised); }
 .question { color: var(--text); font-size: 1.1rem; }
 .terms { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 1.5rem 0; }
+.challenge-panel { margin-top: 2rem; padding: 1.4rem; border: 1px solid var(--border); background: var(--bg); }
+.challenge-panel h4 { margin: .45rem 0; font-size: 1.15rem; }
+.challenge-copy { margin: .25rem 0 1rem; }
+.challenge-terms { margin: 1rem 0; }
+.risk-note { color: var(--text); font-weight: 700; }
+.settlement-rule { max-width: 78ch; color: var(--muted); font-size: .9rem; }
+.transaction-state { min-height: 1.6em; margin-bottom: 0; }
+.wallet-dialog { width: min(720px, calc(100% - 2rem)); max-height: calc(100% - 2rem); padding: 0; border: 1px solid var(--accent); border-radius: .35rem; background: var(--surface-raised); color: var(--text); }
+.wallet-dialog::backdrop { background: rgb(0 0 0 / 75%); }
+.wallet-dialog-content { max-height: calc(100vh - 2rem); overflow: auto; padding: 1.5rem; }
+.wallet-dialog-content > p:not(.eyebrow) { max-width: 75ch; }
+.approval-terms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dialog-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-top: 1rem; }
+.dialog-actions .primary { margin: 0; }
+.secondary { min-height: 3.25rem; padding: .7rem 1rem; border: 1px solid var(--border); border-radius: .25rem; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.secondary:hover { background: var(--surface); }
 .fingerprint-label { margin: 1.5rem 0 .4rem; color: var(--muted); font-size: .875rem; }
 .fingerprint { display: block; overflow-wrap: anywhere; color: var(--text); font-size: .8rem; }
 .evidence-link { color: var(--accent); font-weight: 650; }
@@ -133,8 +150,9 @@ footer {
   header { align-items: flex-start; padding: 1rem; }
   main { padding: 2rem 1rem 1rem; }
   .scene, .forecast { margin-top: 2rem; padding: 1.25rem; }
-  .partition { grid-template-columns: 1fr; }
+  .partition { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .terms { grid-template-columns: 1fr; }
+  .approval-terms { grid-template-columns: 1fr; }
   .glyph { width: 65px; height: 65px; }
   .glyph span { width: 32px; height: 32px; }
   .network, .provider-label { font-size: .63rem; }
@@ -144,6 +162,8 @@ footer {
 @media (max-width: 420px) {
   header { flex-direction: column; }
   .environment { text-align: left; }
+  .dialog-actions { align-items: stretch; flex-direction: column; }
+  .dialog-actions button { width: 100%; }
   .time { font-size: 2.7rem; }
   .glyph { display: none; }
 }

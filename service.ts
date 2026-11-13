@@ -18,6 +18,10 @@ let fixtureStorageUnavailable = false;
 
 const worker = await Worker.init();
 const root = worker.rootAccount;
+const sandboxRpcUrl = (worker.provider as unknown as {connection: {url: string}}).connection.url;
+const challengerWallet = await root.createSubAccount('challenger', {initialBalance: 25n * 10n ** 24n});
+const challengerKey = await challengerWallet.getKey();
+if (!challengerKey) throw new Error('The sandbox challenger wallet key is unavailable');
 const predictionKey = KeyPairEd25519.fromRandom();
 const contract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
   initialBalance: 120n * 10n ** 24n,
@@ -59,7 +63,7 @@ const forecast = new ForecastService(chain, {
 
 const files: Record<string, [string, string]> = {
   '/': ['public/index.html', 'text/html; charset=utf-8'],
-  '/app.js': ['public/app.js', 'text/javascript; charset=utf-8'],
+  '/app.js': ['.local/browser/app.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['public/style.css', 'text/css; charset=utf-8'],
   '/diagnostic': ['public/diagnostic.html', 'text/html; charset=utf-8'],
   '/diagnostic-evidence.json': ['docs/evidence/model-attempt-1.json', 'application/json; charset=utf-8'],
@@ -70,6 +74,23 @@ const files: Record<string, [string, string]> = {
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
+    if (req.method === 'POST' && url.pathname === '/api/rpc') {
+      const body = await readJsonBody(req, 1_048_576);
+      const method = body.method;
+      const allowedRpcMethods = ['query', 'block', 'status', 'broadcast_tx_commit', 'send_tx', 'tx'];
+      if (typeof method !== 'string' || !allowedRpcMethods.includes(method)) {
+        json(res, 400, {error: 'Unsupported local sandbox RPC method'});
+        return;
+      }
+      const response = await fetch(sandboxRpcUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      res.writeHead(response.status, {'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store'});
+      res.end(await response.text());
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/api/diagnostic/latest') {
       const names = await readdir('.local/diagnostic-runs').catch(() => []);
       const latest = names.filter(name => /^\d+(?:-[0-9a-f-]+)?\.json$/.test(name)).sort().at(-1);
@@ -86,11 +107,28 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/config') {
       json(res, 200, {
         network: 'local NEAR sandbox · test money',
+        network_id: 'sandbox',
+        rpc_url: '/api/rpc',
         contract_account_id: contract.accountId,
         provider_mode: providerMode,
         evidence_hosting: providerMode === 'live' ? 'Vercel Blob public storage' : 'local deterministic storage fixture',
         model_calls_per_utc_day: providerMode === 'live' ? 12 : null,
       }, {'Cache-Control': 'no-store'});
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/wallet') {
+      const balance = await challengerWallet.balance();
+      json(res, 200, {
+        account_id: challengerWallet.accountId,
+        public_key: challengerKey.getPublicKey().toString(),
+        secret_key: challengerKey.toString(),
+        available_balance: balance.available,
+      }, {'Cache-Control': 'no-store'});
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/wallet/balance') {
+      const balance = await challengerWallet.balance();
+      json(res, 200, {available_balance: balance.available}, {'Cache-Control': 'no-store'});
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/predictions/active') {
@@ -171,11 +209,11 @@ function json(res: import('node:http').ServerResponse, status: number, body: unk
   res.end(JSON.stringify(body));
 }
 
-async function readJsonBody(req: import('node:http').IncomingMessage): Promise<Record<string, unknown>> {
+async function readJsonBody(req: import('node:http').IncomingMessage, maximumLength = 1_024): Promise<Record<string, unknown>> {
   let content = '';
   for await (const chunk of req) {
     content += chunk.toString();
-    if (content.length > 1_024) throw new Error('Request body too large');
+    if (content.length > maximumLength) throw new Error('Request body too large');
   }
   const value: unknown = content ? JSON.parse(content) : {};
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid request body');
