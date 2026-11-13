@@ -8,6 +8,7 @@ let providerMode = 'fixture';
 let agentIsDead = false;
 let requestInFlight = false;
 let challengeInFlight = false;
+let paymentRetryInFlight = false;
 let contractAccountId = '';
 let challengerAccountId = '';
 let challengerSecretKey = null;
@@ -111,6 +112,23 @@ function renderSettlementState(prediction) {
     state.textContent = 'The prediction resolves automatically after its five-minute deadline. No result-reveal action is needed.';
     showStatus(`Prediction #${prediction.id} is published. Its reference, confidence, stakes, and deadlines are fixed.`, 'published');
   }
+  renderPaymentRecovery(prediction);
+}
+
+function renderPaymentRecovery(prediction) {
+  const panel = $('payment-recovery');
+  const button = $('retry-payment-button');
+  const payment = prediction.payment;
+  if (!payment || payment.status !== 'pending') {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  button.disabled = paymentRetryInFlight || payment.transfer_in_flight;
+  button.textContent = payment.transfer_in_flight ? 'Payment attempt pending…' : 'Retry payment';
+  $('payment-recovery-state').textContent = payment.transfer_in_flight
+    ? `A transfer attempt is pending for ${near(payment.amount)} to ${payment.beneficiary_account_id}. The outcome is final; the browser will not call it paid until the receipt confirms.`
+    : `The final ${prediction.outcome === 'void' ? 'refund' : 'payout'} of ${near(payment.amount)} remains owed to ${payment.beneficiary_account_id}. Recovery keeps this beneficiary and amount fixed; it does not create a new wager.`;
 }
 
 function renderChallengeOffer() {
@@ -551,10 +569,40 @@ async function requestForecast() {
   }
 }
 
+async function retryPayment() {
+  if (!currentPrediction?.payment || currentPrediction.payment.status !== 'pending' || paymentRetryInFlight) return;
+  paymentRetryInFlight = true;
+  renderPaymentRecovery(currentPrediction);
+  showStatus(`Recovering the recorded ${currentPrediction.outcome === 'void' ? 'refund' : 'payout'} without changing the final result.`, 'settling');
+  try {
+    const response = await fetch('/api/payments/retry', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prediction_id: currentPrediction.id}),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Payment recovery was not accepted');
+    if (body.prediction) renderPrediction(body.prediction);
+    await refreshPublicRecord();
+    if (currentPrediction?.payment?.status === 'paid') {
+      showStatus(`Prediction #${currentPrediction.id} payment confirmed on chain.`, 'resolved');
+    } else {
+      showStatus(`Prediction #${currentPrediction.id} remains pending until its transfer receipt confirms.`, 'settling');
+    }
+  } catch {
+    showStatus('Payment recovery was not accepted. The original beneficiary and liability remain recorded.', 'unavailable');
+    await refreshPublicRecord();
+  } finally {
+    paymentRetryInFlight = false;
+    if (currentPrediction) renderPaymentRecovery(currentPrediction);
+  }
+}
+
 $('ask-button').addEventListener('click', () => void requestForecast());
 $('challenge-button').addEventListener('click', openChallengeApproval);
 $('approve-challenge').addEventListener('click', () => void approveChallenge());
 $('cancel-challenge').addEventListener('click', () => $('challenge-dialog').close());
+ $('retry-payment-button').addEventListener('click', () => void retryPayment());
  $('record-more').addEventListener('click', () => void loadOlderPredictions());
 void Promise.all([refreshLife(), refreshPrediction(), refreshPublicRecord(), loadConfiguration(), loadSandboxWallet()]);
 setInterval(() => void refreshLife(), 3_000);

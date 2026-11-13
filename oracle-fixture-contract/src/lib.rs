@@ -1,7 +1,7 @@
 use near_sdk::serde_json::{self, Value};
 use near_sdk::{env, near, require, AccountId, Gas, NearToken, PanicOnDefault, Promise};
 
-const CALLBACK_GAS: Gas = Gas::from_tgas(20);
+const CALLBACK_GAS: Gas = Gas::from_tgas(40);
 const ASSET: &str = "wrap.near";
 
 #[near(contract_state)]
