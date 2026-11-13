@@ -472,7 +472,10 @@ impl Reckon {
             now >= prediction.deadline_ns.0,
             "Prediction deadline has not passed"
         );
-        require!(callback_before_cutoff(now, settlement_cutoff), "Settlement window has closed");
+        require!(
+            callback_before_cutoff(now, settlement_cutoff),
+            "Settlement window has closed"
+        );
         require!(
             prediction.settlement_request_id.is_none(),
             "An oracle request is already pending"

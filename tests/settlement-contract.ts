@@ -286,9 +286,10 @@ try {
   const beneficiaryBeforeConcurrentRecovery = BigInt((await restoredBeneficiary.balance()).total);
   const contractBeforeConcurrentRecovery = BigInt((await recoveryContract.balance()).total);
   const storageBeforeConcurrentRecovery = BigInt((await recoveryContract.accountView()).storage_usage);
+  const concurrentRetryCaller = await root.createSubAccount('recovery-retry-racer', {initialBalance: NEAR});
   const concurrentRecovery = await Promise.all([
     root.callRaw(recoveryContract, 'retry_payment', {prediction_id: recoveryPrediction.id}, {gas: 250n * 10n ** 12n}),
-    root.callRaw(recoveryContract, 'retry_payment', {prediction_id: recoveryPrediction.id}, {gas: 250n * 10n ** 12n}),
+    concurrentRetryCaller.callRaw(recoveryContract, 'retry_payment', {prediction_id: recoveryPrediction.id}, {gas: 250n * 10n ** 12n}),
   ]);
   assert.equal(concurrentRecovery.filter(receipt => receipt.succeeded).length, 1, 'concurrent retries accept at most one transfer attempt');
   assert(concurrentRecovery.every(receipt => receipt.receipts_outcomes.length > 0), 'concurrent retry calls produce inspectable receipts and gas outcomes');
@@ -302,9 +303,20 @@ try {
   const beneficiaryAfterConcurrentRecovery = BigInt((await restoredBeneficiary.balance()).total);
   const contractAfterConcurrentRecovery = BigInt((await recoveryContract.balance()).total);
   const storageAfterConcurrentRecovery = BigInt((await recoveryContract.accountView()).storage_usage);
-  assert(beneficiaryAfterConcurrentRecovery - beneficiaryBeforeConcurrentRecovery >= BigInt(paidRecovery.payment.amount), 'one accepted retry credits the fixed beneficiary by the fixed liability');
-  assert(contractBeforeConcurrentRecovery - contractAfterConcurrentRecovery >= BigInt(paidRecovery.payment.amount), 'one accepted retry removes only the fixed liability from contract balance');
-  assert(storageAfterConcurrentRecovery >= storageBeforeConcurrentRecovery, 'retry bookkeeping does not redirect or erase the recorded liability');
+  assert.equal(beneficiaryAfterConcurrentRecovery - beneficiaryBeforeConcurrentRecovery, BigInt(paidRecovery.payment.amount), 'concurrent retries credit the fixed beneficiary exactly once');
+  assert.equal(contractBeforeConcurrentRecovery - contractAfterConcurrentRecovery, BigInt(paidRecovery.payment.amount), 'concurrent retries remove exactly one liability from contract balance');
+  assert(storageAfterConcurrentRecovery > 0n, 'the contract retains its recorded payment and prediction state');
+  const recoveryGasBurnt = concurrentRecovery.reduce((total, receipt) => total + BigInt(receipt.gas_burnt), 0n);
+  assert(recoveryGasBurnt > 0n, 'concurrent retry gas is measured from the real sandbox receipts');
+  console.log(`PAYMENT_RECOVERY_MEASUREMENT ${JSON.stringify({
+    scenario: 'concurrent_retries',
+    amount: paidRecovery.payment.amount,
+    storage_bytes_before: storageBeforeConcurrentRecovery.toString(),
+    storage_bytes_after: storageAfterConcurrentRecovery.toString(),
+    storage_bytes_delta: (storageAfterConcurrentRecovery - storageBeforeConcurrentRecovery).toString(),
+    end_to_end_gas_burnt_yocto_gas: recoveryGasBurnt.toString(),
+    receipt_gas_burnt_yocto_gas: concurrentRecovery.map(receipt => receipt.gas_burnt),
+  })}`);
   const repeatedPaidRetry = await root.callRaw(recoveryContract, 'retry_payment', {prediction_id: recoveryPrediction.id}, {gas: 250n * 10n ** 12n});
   assert.equal(repeatedPaidRetry.succeeded, false, 'repeating a confirmed retry cannot create a second payout');
 

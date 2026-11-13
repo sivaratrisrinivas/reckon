@@ -249,7 +249,7 @@ test('failed payout stays visible and can be recovered without changing the fina
   await expect(page.locator('#retry-payment-button')).toBeEnabled();
 
   expect((await request.post('/test/payment-scenario', {data: {scenario: 'restore'}})).status()).toBe(204);
-  await page.getByRole('button', {name: 'Retry payment'}).click();
+  await page.locator('.record-recovery').click();
   await expect(page.locator('#settlement-state')).toContainText('Payment confirmed on chain', {timeout: 20_000});
   const recovered = (await (await request.get(`/api/predictions?start_id=${prediction.id}&limit=1`)).json())[0];
   expect(recovered.outcome).toBe('yes');
