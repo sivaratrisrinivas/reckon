@@ -151,6 +151,29 @@ test('invalid evidence and abstention publish nothing; one browser request publi
   await expect(page.locator('.record-entry').last()).toContainText('No outgoing payment required');
 });
 
+test('unchallenged round resolves into public accuracy without moving betting funds', async ({page, request}) => {
+  await scenario(request, 'publish');
+  await page.goto('/');
+  const walletBefore = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  await expect(page.locator('#prediction')).toBeVisible();
+  const prediction = (await (await request.get('/api/predictions/active')).json()).prediction;
+  expect(prediction.challenger_account_id).toBeNull();
+  await expect(page.locator('#challenge-panel')).toBeVisible();
+
+  expect((await request.post('/test/settlement-scenario', {data: {scenario: 'below'}})).status()).toBe(204);
+  expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('Resolved NO', {timeout: 20_000});
+  await expect(page.locator('#record-summary')).toContainText('2 published · 2 valid outcomes');
+  await expect(page.locator('.record-entry').last()).toContainText('Outcome NO');
+  await expect(page.locator('.record-entry').last()).toContainText('No outgoing payment required');
+  expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBe(walletBefore);
+  await page.reload();
+  await expect(page.locator('.record-entry').last()).toContainText('Outcome NO');
+  await expect(page.locator('.record-entry').last()).toContainText('No outgoing payment required');
+  await expect(page.getByRole('button', {name: /reveal/i})).toHaveCount(0);
+});
+
 async function publishAndChallenge(page: Page, request: APIRequestContext) {
   await scenario(request, 'publish');
   await page.goto('/');
@@ -172,7 +195,7 @@ test('challenger win returns both stakes and the public result survives reload',
   expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
   await expect(page.locator('#settlement-state')).toContainText('Resolved YES', {timeout: 20_000});
   await expect(page.locator('#settlement-state')).toContainText('Payment confirmed on chain');
-  await expect(page.locator('#record-summary')).toContainText('2 valid outcomes');
+  await expect(page.locator('#record-summary')).toContainText('3 valid outcomes');
   await expect(page.locator('.record-entry').last()).toContainText('Payment receipt confirmed on chain');
   expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBeGreaterThan(balanceBefore);
   expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
@@ -193,7 +216,7 @@ test('stalled oracle observation voids after the bounded window and refunds the 
   expect((await request.post('/test/advance', {data: {seconds: 120}})).status()).toBe(204);
   await expect(page.locator('#settlement-state')).toContainText('was voided', {timeout: 20_000});
   await expect(page.locator('#settlement-state')).toContainText('refund remains paid on chain');
-  await expect(page.locator('#record-summary')).toContainText('3 published · 2 valid outcomes');
+  await expect(page.locator('#record-summary')).toContainText('4 published · 3 valid outcomes');
   expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBeGreaterThan(balanceAfterChallenge);
   await page.reload();
   await expect(page.locator('.record-entry').last()).toContainText('VOID');
