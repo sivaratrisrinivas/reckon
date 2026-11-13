@@ -36,5 +36,7 @@ jobs:
         run: npm run build:contract
       - name: Run contract and browser checks
         run: npm test
+      - name: Run diagnostic contract checks
+        run: npm run test:diagnostic-contract
       - name: Audit dependencies
         run: npm run audit:high

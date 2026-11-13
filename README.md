@@ -23,6 +23,14 @@ The [integration diagnostic](http://127.0.0.1:4389/diagnostic) displays recorded
 
 To run a new diagnostic, first deploy the scratch contract to a dedicated, funded testnet account and initialize it with `reset`; do not use an account holding real money. The runner needs `NEAR_ACCOUNT_ID`, `NEAR_AI_API_KEY` and `NEAR_AI_MODEL` in a private `.env`, the account's signing key in the NEAR CLI legacy keychain, and NEAR CLI installed at `.local/near-cli/node_modules/.bin/near`. With Node 26 on `PATH`, run `node --import tsx diagnostic/live-probe.ts`. The runner checks the deployed code against the locally built scratch Wasm before signing. Each run may spend testnet NEAR and model credits. It writes a private JSON result under `.local/diagnostic-runs/`; the diagnostic page displays the latest result after a refresh. The runner does not deploy or reset contracts, publish predictions, or accept wagers. The oracle report time does not verify the external market observation time. A timeout may leave costs or transaction completion unknown; check the testnet account before retrying. If a run is forcibly interrupted, check for a pending transaction before removing a leftover `.local/diagnostic-runs/probe.lock`.
 
+Keep API keys and private keys out of chat, screenshots, terminal output and commits. Enter secrets locally using hidden input and keep `.env` private; it is ignored by Git. For example, to add or replace the NEAR AI key without echoing it or putting it in shell history:
+
+```sh
+python3 -c 'import getpass,pathlib; p=pathlib.Path(".env"); k=getpass.getpass("NEAR AI API key: "); s=[line for line in (p.read_text().splitlines() if p.exists() else []) if not line.startswith("NEAR_AI_API_KEY=")]; p.write_text("\n".join(s+["NEAR_AI_API_KEY="+repr(k)])+"\n"); p.chmod(0o600)'
+```
+
+If an API key is exposed, revoke it with its provider and replace it in `.env`. If a testnet private key is exposed, stop using that account and create a new disposable account; remove the exposed access key if the account must be retained. Avoid sharing screenshots that show credentials.
+
 For the disposable account used in the recorded rehearsal, the following commands rebuild, deploy and reset the scratch contract. **Reset deletes the scratch contract's stored callback; never use these commands on an account holding another contract or real funds.** The NEAR CLI is version 0.31.1; the following installs it locally and runs its installer explicitly because npm may block package install scripts:
 
 ```sh
@@ -48,10 +56,13 @@ rustup component add rustfmt
 npm run lint
 npm run typecheck
 npm test
+npm run test:diagnostic-contract
 npm run audit:high
 ```
 
 The start and test commands check for the configured sandbox 2.14.0 binary and the compiled contract before running. If either is missing, follow the setup commands above. The contract checks deploy to a real sandbox, reject initialization twice, transfer funds, advance sandbox time, and exercise repeated upkeep, death, and the fifteen-day live rate. The browser test starts its own sandbox, advances its time through a test-only endpoint, and checks the displayed funds and life. Test processes need permission to bind local ports. They require no paid inference or personal keys.
+
+If sandbox tests stall or fail, first check the configured sandbox variables and binary, then check free temporary space with `df -h /tmp` and look for leftover processes with `ps -ef | grep '[n]ear-sandbox'`. Stop only sandbox processes you know are no longer needed and remove only their obsolete temporary data. An expired block-hash message can be followed by a retry that takes time; check whether the test completes before interrupting it. If a browser test reports its port is in use, stop the other test server or run the tests after it finishes.
 
 ## Dependencies and assistance
 

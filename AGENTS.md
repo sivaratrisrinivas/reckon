@@ -11,3 +11,7 @@ Use the five default triage labels. See `docs/agents/triage-labels.md`.
 ### Domain docs
 
 Use a single-context layout. See `docs/agents/domain.md`.
+
+### GitHub pushes
+
+When a task includes pushing, check authentication early. See `docs/agents/git.md`.
