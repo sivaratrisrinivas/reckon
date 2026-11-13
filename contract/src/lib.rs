@@ -48,6 +48,7 @@ pub struct Reckon {
     last_accrual_ns: u64,
     fractional: u128,
     dead: bool,
+    death_at_ns: u64,
     prediction_public_key: String,
     oracle_account_id: AccountId,
     next_prediction_id: u64,
@@ -71,6 +72,7 @@ pub struct Life {
     remaining_life_ns: U64,
     idle_life_ns: U64,
     dead: bool,
+    death_at_ns: U64,
 }
 
 #[near(serializers = [borsh, json])]
@@ -197,6 +199,7 @@ impl Reckon {
             last_accrual_ns: env::block_timestamp(),
             fractional: 0,
             dead: false,
+            death_at_ns: 0,
             prediction_public_key,
             oracle_account_id,
             next_prediction_id: 1,
@@ -210,7 +213,8 @@ impl Reckon {
     }
 
     pub fn life(&self) -> Life {
-        let (spendable, retired, fractional, dead) = self.project(env::block_timestamp());
+        let (spendable, retired, fractional, dead, death_at_ns) =
+            self.project(env::block_timestamp());
         let numerator =
             U256::from(spendable) * U256::from(self.idle_life_ns) - U256::from(fractional);
         let remaining = if dead {
@@ -231,6 +235,7 @@ impl Reckon {
             remaining_life_ns: U64(remaining),
             idle_life_ns: U64(self.idle_life_ns),
             dead,
+            death_at_ns: U64(death_at_ns),
         }
     }
 
@@ -784,7 +789,7 @@ impl Reckon {
         let challenge_closes_at = now
             .checked_add(CHALLENGE_WINDOW_NS)
             .expect("Challenge deadline overflow");
-        let (spendable_at_close, _, _, dead_at_close) = self.project(challenge_closes_at);
+        let (spendable_at_close, _, _, dead_at_close, _) = self.project(challenge_closes_at);
         require!(
             !dead_at_close,
             "Reckon will be dead before the challenge window closes"
@@ -819,24 +824,49 @@ impl Reckon {
     }
 
     fn accrue_at(&mut self, now: u64) {
-        let (spendable, retired, fractional, dead) = self.project(now);
+        let (spendable, retired, fractional, dead, death_at_ns) = self.project(now);
         self.spendable = spendable;
         self.retired = retired;
         self.fractional = fractional;
         self.dead = dead;
+        self.death_at_ns = death_at_ns;
         self.last_accrual_ns = now;
     }
 
-    fn project(&self, now: u64) -> (u128, u128, u128, bool) {
+    fn project(&self, now: u64) -> (u128, u128, u128, bool, u64) {
         if self.dead {
-            return (self.spendable, self.retired, self.fractional, true);
+            return (
+                self.spendable,
+                self.retired,
+                self.fractional,
+                true,
+                self.death_at_ns,
+            );
         }
         let elapsed = now.saturating_sub(self.last_accrual_ns);
         let charge =
             U256::from(self.initial_bankroll) * U256::from(elapsed) + U256::from(self.fractional);
         let whole = charge / U256::from(self.idle_life_ns);
         if whole >= U256::from(self.spendable) {
-            return (0, self.retired + self.spendable, 0, true);
+            let death_at_ns = if self.spendable == 0 {
+                self.last_accrual_ns
+            } else {
+                let required_charge = U256::from(self.spendable) * U256::from(self.idle_life_ns)
+                    - U256::from(self.fractional);
+                let elapsed_to_death = (required_charge + U256::from(self.initial_bankroll - 1))
+                    / U256::from(self.initial_bankroll);
+                self.last_accrual_ns
+                    .saturating_add(elapsed_to_death.as_u64())
+            };
+            return (
+                0,
+                self.retired
+                    .checked_add(self.spendable)
+                    .expect("Retired bankroll overflow"),
+                0,
+                true,
+                death_at_ns,
+            );
         }
         let whole = whole.as_u128();
         (
@@ -844,6 +874,7 @@ impl Reckon {
             self.retired + whole,
             (charge % U256::from(self.idle_life_ns)).as_u128(),
             false,
+            0,
         )
     }
 }

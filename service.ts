@@ -37,7 +37,7 @@ const contract = await root.devDeploy('contract/target/wasm32-unknown-unknown/re
   args: {
     initial_bankroll: (100n * 10n ** 24n).toString(),
     operational_reserve: (20n * 10n ** 24n).toString(),
-    idle_life_ns: '900000000000',
+    idle_life_ns: process.env.RECKON_LOCAL_IDLE_LIFE_NS ?? '900000000000',
     prediction_public_key: predictionKey.getPublicKey().toString(),
     oracle_account_id: oracleFixture?.accountId ?? 'price-oracle.testnet',
   },
@@ -142,17 +142,37 @@ async function retryPendingPayments(): Promise<void> {
   }
 }
 
-async function readSandboxBlockTimestamp(): Promise<bigint> {
+async function readSandboxBlock(): Promise<{height: number; timestamp: bigint}> {
   const response = await fetch(sandboxRpcUrl, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', id: 'reckon-settlement-keeper', method: 'block', params: {finality: 'optimistic'}}),
   });
   if (!response.ok) throw new Error('Sandbox block read failed');
-  const body = await response.json() as {result?: {header?: {timestamp_nanosec?: string}}};
+  const body = await response.json() as {result?: {header?: {height?: number; timestamp_nanosec?: string}}};
+  const height = body.result?.header?.height;
   const timestamp = body.result?.header?.timestamp_nanosec;
-  if (!timestamp || !/^\d+$/.test(timestamp)) throw new Error('Sandbox block timestamp is missing');
-  return BigInt(timestamp);
+  if (!Number.isSafeInteger(height) || !timestamp || !/^\d+$/.test(timestamp)) throw new Error('Sandbox block metadata is missing');
+  return {height: height as number, timestamp: BigInt(timestamp)};
+}
+
+async function readSandboxBlockTimestamp(): Promise<bigint> {
+  return (await readSandboxBlock()).timestamp;
+}
+
+async function fastForwardSandboxSeconds(seconds: number): Promise<void> {
+  const targetNs = BigInt(seconds) * 1_000_000_000n;
+  const before = await readSandboxBlock();
+  const sampleHeightDelta = Math.min(100, Math.max(1, Math.floor(seconds / 10)));
+  await worker.provider.fastForward(sampleHeightDelta);
+  const sample = await readSandboxBlock();
+  const elapsedNs = sample.timestamp - before.timestamp;
+  const elapsedHeight = sample.height - before.height;
+  if (elapsedNs >= targetNs) return;
+  if (elapsedNs <= 0n || elapsedHeight <= 0) throw new Error('Sandbox fast-forward did not advance block time');
+  const remainingNs = targetNs - elapsedNs;
+  const additionalHeight = Number(remainingNs * BigInt(elapsedHeight) / elapsedNs);
+  if (additionalHeight > 0) await worker.provider.fastForward(additionalHeight);
 }
 
 const server = createServer(async (req, res) => {
@@ -282,9 +302,15 @@ const server = createServer(async (req, res) => {
     if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/advance') {
       const body = await readJsonBody(req);
       const seconds = body.seconds === undefined ? 300 : Number(body.seconds);
-      if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 600) { json(res, 400, {error: 'Advance must be between 1 and 600 seconds'}); return; }
-      await worker.provider.fastForward(seconds);
+      if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 10_000) { json(res, 400, {error: 'Advance must be between 1 and 10,000 seconds'}); return; }
+      await fastForwardSandboxSeconds(seconds);
       await runSettlementKeeper();
+      res.writeHead(204).end();
+      return;
+    }
+    if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/accrue') {
+      const receipt = await contract.callRaw(contract, 'accrue', {}, {gas: 30n * 10n ** 12n});
+      if (!receipt.succeeded) { json(res, 409, {error: 'Death transition was not accepted'}); return; }
       res.writeHead(204).end();
       return;
     }

@@ -134,6 +134,11 @@ function renderPaymentRecovery(prediction) {
 function renderChallengeOffer() {
   const panel = $('challenge-panel');
   const button = $('challenge-button');
+  if (agentIsDead) {
+    panel.hidden = true;
+    if (!currentPrediction?.outcome) showStatus('Reckon is permanently dead. New challenges are disabled.', 'unavailable');
+    return;
+  }
   if (!currentPrediction || currentPrediction.outcome || currentPrediction.settlement_status === 'observing'
     || BigInt(Date.now()) * 1_000_000n >= BigInt(currentPrediction.deadline_ns)) {
     panel.hidden = true;
@@ -482,6 +487,10 @@ async function refreshLife() {
     $('remaining').textContent = duration(life.remaining_life_ns);
     agentIsDead = life.dead;
     $('life-state').textContent = life.dead ? 'Depleted · permanently dead' : 'Alive · upkeep continues';
+    const deathDate = $('death-date');
+    const deathAt = BigInt(life.death_at_ns || '0');
+    deathDate.hidden = !life.dead || deathAt === 0n;
+    deathDate.textContent = deathAt === 0n ? '' : `Death date: ${dateFromNs(deathAt.toString())}`;
     $('spendable').textContent = near(life.spendable_bankroll);
     $('committed').textContent = near(life.committed_bankroll);
     $('custody').textContent = near(life.challenger_custody);
@@ -489,6 +498,7 @@ async function refreshLife() {
     $('reserve').textContent = near(life.operational_reserve);
     const percentage = Number(BigInt(life.remaining_life_ns) * 10_000n / BigInt(life.idle_life_ns)) / 100;
     $('meter').style.width = `${Math.max(0, Math.min(100, percentage))}%`;
+    renderChallengeOffer();
     if (agentIsDead) setAvailableAction();
   } catch {
     $('life-state').textContent = 'Sandbox unavailable · reconnecting';

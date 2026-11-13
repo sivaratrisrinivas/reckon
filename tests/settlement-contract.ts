@@ -334,7 +334,35 @@ try {
   const deadChallenger = await root.createSubAccount('dead-agent-challenger', {initialBalance: 10n * NEAR});
   await deadChallenger.call(deadContract, 'challenge_prediction', {prediction_id: deadPrediction.id}, {attachedDeposit: BigInt(deadPrediction.challenger_stake)});
   const retiredBeforeDeath = BigInt((await deadContract.view<{retired_bankroll: string}>('life', {})).retired_bankroll);
+  const projectedBeforeDeath = await deadContract.view<{
+    dead: boolean;
+    death_at_ns: string;
+    remaining_life_ns: string;
+  }>('life', {});
+  assert.equal(projectedBeforeDeath.dead, false);
+  assert.equal(projectedBeforeDeath.death_at_ns, '0', 'a living agent has no death date');
   await worker.provider.fastForward(300);
+  const projectedDeadBeforeOutcome = await deadContract.view<{
+    dead: boolean;
+    death_at_ns: string;
+    committed_bankroll: string;
+    challenger_custody: string;
+  }>('life', {});
+  assert.equal(projectedDeadBeforeOutcome.dead, true, 'life projects depletion before the keeper settles the open round');
+  assert(BigInt(projectedDeadBeforeOutcome.death_at_ns) > 0n);
+  assert(BigInt(projectedDeadBeforeOutcome.death_at_ns) < BigInt((await deadContract.view<{deadline_ns: string}>('get_prediction', {id: deadPrediction.id})).deadline_ns));
+  await assert.rejects(deadContract.call(deadContract, 'publish_prediction', {
+    reference_multiplier: '340823333',
+    reference_decimals: 8,
+    decision: 'no',
+    confidence_ppm: 850_000,
+    evidence_hash: '000000000000000000000000000000000000000000000000000000000000000c',
+    evidence_url: 'https://evidence.reckon.invalid/dead-agent-republish.json',
+  }, {signWithKey: deadKey}), 'a rejected post-death publication cannot revive the account');
+  await deadContract.call(deadContract, 'accrue', {});
+  const persistedDeadBeforeOutcome = await deadContract.view<{dead: boolean; death_at_ns: string}>('life', {});
+  assert.equal(persistedDeadBeforeOutcome.dead, true);
+  assert.equal(persistedDeadBeforeOutcome.death_at_ns, projectedDeadBeforeOutcome.death_at_ns, 'accrual persists the exact projected death instant');
   await setOracleScenario('equal');
   const deadRoundReceipt = await deadContract.callRaw(deadContract, 'request_settlement', {prediction_id: deadPrediction.id}, {gas: 250n * 10n ** 12n});
   assert.equal(deadRoundReceipt.succeeded, true, deadRoundReceipt.summary());
@@ -344,8 +372,11 @@ try {
     spendable_bankroll: string;
     committed_bankroll: string;
     challenger_custody: string;
+    death_at_ns: string;
   }>('life', {});
   assert.equal(afterDeadWin.dead, true, 'the short-lived agent dies before the valid result is applied');
+  assert(BigInt(afterDeadWin.death_at_ns) > 0n, 'death records the exact projected depletion timestamp');
+  assert(BigInt(afterDeadWin.death_at_ns) < BigInt((await deadContract.view<{settled_at_ns: string}>('get_prediction', {id: deadPrediction.id})).settled_at_ns));
   assert(
     BigInt(afterDeadWin.retired_bankroll) - retiredBeforeDeath >= BigInt(deadPrediction.agent_stake) + BigInt(deadPrediction.challenger_stake),
     'a correct forecast cannot revive a dead agent; both stakes are retired',
@@ -353,6 +384,138 @@ try {
   assert.equal(afterDeadWin.spendable_bankroll, '0');
   assert.equal(afterDeadWin.committed_bankroll, '0');
   assert.equal(afterDeadWin.challenger_custody, '0');
+  await root.transfer(deadContract, NEAR);
+  const afterDeadTransfer = await deadContract.view<{dead: boolean; spendable_bankroll: string; retired_bankroll: string}>('life', {});
+  assert.equal(afterDeadTransfer.dead, true, 'plain transfers cannot revive a dead agent');
+  assert.equal(afterDeadTransfer.spendable_bankroll, '0', 'incoming funds never become a usable bankroll after death');
+  assert.equal(afterDeadTransfer.retired_bankroll, afterDeadWin.retired_bankroll, 'incoming funds cannot be counted as retired or usable stake');
+  await assert.rejects(deadContract.call(deadContract, 'publish_prediction', {
+    reference_multiplier: '340823333',
+    reference_decimals: 8,
+    decision: 'no',
+    confidence_ppm: 850_000,
+    evidence_hash: '000000000000000000000000000000000000000000000000000000000000000d',
+    evidence_url: 'https://evidence.reckon.invalid/dead-agent-after-transfer.json',
+  }, {signWithKey: deadKey}), 'a late transfer cannot enable new publication');
+
+  const deployShortLivedContract = async (key: KeyPairEd25519) => {
+    const deployed = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
+      initialBalance: 120n * NEAR,
+      method: 'new',
+      args: {
+        initial_bankroll: (100n * NEAR).toString(),
+        operational_reserve: (20n * NEAR).toString(),
+        idle_life_ns: '120000000000',
+        prediction_public_key: key.getPublicKey().toString(),
+        oracle_account_id: oracle.accountId,
+      },
+    });
+    await deployed.batch(deployed).addKey(
+      key.getPublicKey(),
+      functionCallAccessKey(deployed.accountId, ['publish_prediction'], 5n * NEAR),
+    ).transact();
+    return deployed;
+  };
+
+  const deadPayoutKey = KeyPairEd25519.fromRandom();
+  const deadPayoutContract = await deployShortLivedContract(deadPayoutKey);
+  const deadPayoutPrediction = await deadPayoutContract.call<{id: string; agent_stake: string; challenger_stake: string}>(
+    deadPayoutContract,
+    'publish_prediction',
+    {
+      reference_multiplier: '340823333',
+      reference_decimals: 8,
+      decision: 'no',
+      confidence_ppm: 850_000,
+      evidence_hash: '000000000000000000000000000000000000000000000000000000000000000e',
+      evidence_url: 'https://evidence.reckon.invalid/dead-payout.json',
+    },
+    {signWithKey: deadPayoutKey},
+  );
+  const deadPayoutChallenger = await root.createSubAccount('dead-payout-challenger', {initialBalance: 10n * NEAR});
+  await deadPayoutChallenger.call(deadPayoutContract, 'challenge_prediction', {prediction_id: deadPayoutPrediction.id}, {
+    attachedDeposit: BigInt(deadPayoutPrediction.challenger_stake),
+  });
+  const deadPayoutBeneficiary = deadPayoutChallenger.accountId;
+  assert.equal((await deadPayoutChallenger.delete(root.accountId)).succeeded, true);
+  await worker.provider.fastForward(300);
+  await setOracleScenario('above');
+  const deadPayoutReceipt = await deadPayoutContract.callRaw(deadPayoutContract, 'request_settlement', {prediction_id: deadPayoutPrediction.id}, {gas: 250n * 10n ** 12n});
+  assert.equal(deadPayoutReceipt.succeeded, true, deadPayoutReceipt.summary());
+  const deadPayout = await deadPayoutContract.view<{
+    outcome: string;
+    payment: {beneficiary_account_id: string; amount: string; status: string};
+  }>('get_prediction', {id: deadPayoutPrediction.id});
+  assert.equal(deadPayout.outcome, 'yes');
+  assert.equal(deadPayout.payment.beneficiary_account_id, deadPayoutBeneficiary);
+  assert.equal(deadPayout.payment.status, 'pending', 'a failed winner payout remains owed after death');
+  const deadPayoutLife = await deadPayoutContract.view<{dead: boolean; pending_payment_liabilities: string; spendable_bankroll: string}>('life', {});
+  assert.equal(deadPayoutLife.dead, true);
+  assert.equal(deadPayoutLife.spendable_bankroll, '0');
+  assert.equal(deadPayoutLife.pending_payment_liabilities, deadPayout.payment.amount);
+  await root.createAccount(deadPayoutBeneficiary, {initialBalance: NEAR, keyPair: KeyPairEd25519.fromRandom()});
+  const deadPayoutRetry = await root.callRaw(deadPayoutContract, 'retry_payment', {prediction_id: deadPayoutPrediction.id}, {gas: 250n * 10n ** 12n});
+  assert.equal(deadPayoutRetry.succeeded, true, deadPayoutRetry.summary());
+  const recoveredDeadPayout = await deadPayoutContract.view<typeof deadPayout>('get_prediction', {id: deadPayoutPrediction.id});
+  assert.equal(recoveredDeadPayout.payment.status, 'paid', 'recovery pays the original winner after death');
+  assert.equal((await deadPayoutContract.view<{dead: boolean}>('life', {})).dead, true, 'payout recovery cannot revive the agent');
+
+  const deadRefundKey = KeyPairEd25519.fromRandom();
+  const deadRefundContract = await deployShortLivedContract(deadRefundKey);
+  const deadRefundPrediction = await deadRefundContract.call<{id: string; agent_stake: string; challenger_stake: string}>(
+    deadRefundContract,
+    'publish_prediction',
+    {
+      reference_multiplier: '340823333',
+      reference_decimals: 8,
+      decision: 'yes',
+      confidence_ppm: 850_000,
+      evidence_hash: '000000000000000000000000000000000000000000000000000000000000000f',
+      evidence_url: 'https://evidence.reckon.invalid/dead-refund.json',
+    },
+    {signWithKey: deadRefundKey},
+  );
+  const deadRefundChallenger = await root.createSubAccount('dead-refund-challenger', {initialBalance: 10n * NEAR});
+  await deadRefundChallenger.call(deadRefundContract, 'challenge_prediction', {prediction_id: deadRefundPrediction.id}, {
+    attachedDeposit: BigInt(deadRefundPrediction.challenger_stake),
+  });
+  const deadRefundBeneficiary = deadRefundChallenger.accountId;
+  assert.equal((await deadRefundChallenger.delete(root.accountId)).succeeded, true);
+  await worker.provider.fastForward(420);
+  const deadRefundReceipt = await deadRefundContract.callRaw(deadRefundContract, 'void_unsettled_prediction', {prediction_id: deadRefundPrediction.id}, {gas: 250n * 10n ** 12n});
+  assert.equal(deadRefundReceipt.succeeded, true, deadRefundReceipt.summary());
+  const deadRefund = await deadRefundContract.view<{
+    outcome: string;
+    payment: {beneficiary_account_id: string; amount: string; status: string};
+  }>('get_prediction', {id: deadRefundPrediction.id});
+  assert.equal(deadRefund.outcome, 'void');
+  assert.equal(deadRefund.payment.beneficiary_account_id, deadRefundBeneficiary);
+  assert.equal(deadRefund.payment.amount, deadRefundPrediction.challenger_stake);
+  assert.equal(deadRefund.payment.status, 'pending', 'a failed refund remains owed after death');
+  const deadRefundLife = await deadRefundContract.view<{
+    dead: boolean;
+    pending_payment_liabilities: string;
+    committed_bankroll: string;
+    challenger_custody: string;
+    spendable_bankroll: string;
+  }>('life', {});
+  assert.equal(deadRefundLife.dead, true);
+  assert.equal(deadRefundLife.pending_payment_liabilities, deadRefundPrediction.challenger_stake);
+  assert.equal(deadRefundLife.committed_bankroll, '0', 'death releases the commitment without restoring spendable bankroll');
+  assert.equal(deadRefundLife.challenger_custody, '0');
+  assert.equal(deadRefundLife.spendable_bankroll, '0');
+  await root.createAccount(deadRefundBeneficiary, {initialBalance: NEAR, keyPair: KeyPairEd25519.fromRandom()});
+  const deadRefundRetry = await root.callRaw(deadRefundContract, 'retry_payment', {prediction_id: deadRefundPrediction.id}, {gas: 250n * 10n ** 12n});
+  assert.equal(deadRefundRetry.succeeded, true, deadRefundRetry.summary());
+  const recoveredDeadRefund = await deadRefundContract.view<typeof deadRefund>('get_prediction', {id: deadRefundPrediction.id});
+  assert.equal(recoveredDeadRefund.payment.status, 'paid', 'recovery refunds the original challenger after death');
+  assert.equal((await deadRefundContract.view<{dead: boolean}>('life', {})).dead, true, 'refund recovery cannot revive the agent');
+  const lateDeadTaker = await root.createSubAccount('late-dead-taker', {initialBalance: 10n * NEAR});
+  const deadContractBalance = BigInt((await deadRefundContract.balance()).total);
+  await assert.rejects(lateDeadTaker.call(deadRefundContract, 'challenge_prediction', {prediction_id: deadRefundPrediction.id}, {
+    attachedDeposit: BigInt(deadRefundPrediction.challenger_stake),
+  }));
+  assert.equal(BigInt((await deadRefundContract.balance()).total), deadContractBalance, 'a late challenger cannot add a stake to the dead agent');
 
   console.log(`COMPLETE_ROUND_MEASUREMENT ${JSON.stringify(roundMeasurement)}`);
   console.log('Oracle validation, request serialization, equality, payment receipts, void refunds, unchallenged results, and accuracy summary passed');

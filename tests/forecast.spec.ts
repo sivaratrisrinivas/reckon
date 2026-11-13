@@ -243,3 +243,46 @@ test('failed payout stays visible and can be recovered without changing the fina
   expect(recovered.payment.beneficiary_account_id).toBe((await (await request.get('/api/wallet')).json()).account_id);
   await expect(page.locator('#payment-recovery')).toBeHidden();
 });
+
+test('death is permanent while an outstanding challenged round settles and remains readable', async ({page, request}) => {
+  await scenario(request, 'publish');
+  const lifeBefore = await (await request.get('/api/life')).json() as {dead: boolean; remaining_life_ns: string};
+  expect(lifeBefore.dead).toBe(false);
+  const secondsToReserve = Number(BigInt(lifeBefore.remaining_life_ns) / 1_000_000_000n) - 240;
+  expect(secondsToReserve).toBeGreaterThan(0);
+  expect((await request.post('/test/advance', {data: {seconds: secondsToReserve}})).status()).toBe(204);
+  const lifeAfterReserve = await (await request.get('/api/life')).json() as {dead: boolean; remaining_life_ns: string};
+  expect(lifeAfterReserve.dead, `the test setup must leave time to publish and challenge: ${JSON.stringify(lifeAfterReserve)}`).toBe(false);
+
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  await expect(page.locator('#prediction')).toBeVisible();
+  const prediction = (await (await request.get('/api/predictions/active')).json()).prediction;
+  await page.getByRole('button', {name: 'Challenge Prediction'}).click();
+  await page.getByRole('dialog', {name: 'Approve this challenge'}).getByRole('button', {name: 'Approve stake in local wallet'}).click();
+  await expect(page.locator('#forecast-status')).toContainText('accepted on chain', {timeout: 30_000});
+
+  expect((await request.post('/test/settlement-scenario', {data: {scenario: 'above'}})).status()).toBe(204);
+  expect((await request.post('/test/advance', {data: {seconds: 120}})).status()).toBe(204);
+  await expect.poll(async () => (await (await request.get('/api/life')).json()).dead).toBe(false);
+  expect((await request.post('/test/advance', {data: {seconds: 60}})).status()).toBe(204);
+  await expect.poll(async () => (await (await request.get('/api/life')).json()).dead).toBe(true);
+  expect((await request.post('/test/accrue')).status()).toBe(204);
+  await page.reload();
+  await expect(page.locator('#life-state')).toHaveText('Depleted · permanently dead');
+  await expect(page.locator('#death-date')).toContainText('Death date:');
+  await expect(page.getByRole('button', {name: 'Ask Reckon'})).toBeHidden();
+  await expect(page.locator('#challenge-panel')).toBeHidden();
+  await expect(page.locator('#fingerprint')).toHaveText(prediction.evidence_hash);
+
+  // The prediction deadline has passed, but this is still before the bounded settlement cutoff.
+  expect((await request.post('/test/advance', {data: {seconds: 150}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('Resolved YES', {timeout: 20_000});
+  await expect(page.locator('#settlement-state')).toContainText('Payment confirmed on chain');
+  await expect(page.locator('.record-entry').last()).toContainText('Outcome YES');
+  await expect(page.locator('.record-entry').last()).toContainText('Payment receipt confirmed on chain');
+  await page.reload();
+  await expect(page.locator('.record-entry').last()).toContainText('Outcome YES');
+  await expect(page.getByRole('button', {name: 'Ask Reckon'})).toBeHidden();
+  await expect(page.locator('#challenge-panel')).toBeHidden();
+});

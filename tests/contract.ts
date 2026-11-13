@@ -171,15 +171,21 @@ try {
     await worker.provider.fastForward(5);
     await root.call(tiny, 'accrue', {});
   }
-  const accrued = await tiny.view<{spendable_bankroll:string; retired_bankroll:string}>('life');
+  const accrued = await tiny.view<{spendable_bankroll:string; retired_bankroll:string; death_at_ns:string}>('life');
   assert(BigInt(accrued.retired_bankroll) > 0n, 'fractional upkeep survives repeated calls');
+  assert.equal(accrued.death_at_ns, '0', 'frequent live accrual does not record a death date');
   await worker.provider.fastForward(200);
-  const depleted = await tiny.view<{dead:boolean; spendable_bankroll:string}>('life');
+  const depleted = await tiny.view<{dead:boolean; spendable_bankroll:string; retired_bankroll:string; death_at_ns:string}>('life');
   assert.equal(depleted.dead, true);
   assert.equal(depleted.spendable_bankroll, '0');
+  assert(BigInt(depleted.death_at_ns) > 0n, 'projected depletion includes an exact death timestamp');
   await root.call(tiny, 'accrue', {});
   await root.transfer(tiny, 10n ** 24n);
-  assert.equal((await tiny.view<{dead:boolean}>('life')).dead, true, 'transfers cannot revive the agent');
+  const stillDead = await tiny.view<{dead:boolean; spendable_bankroll:string; retired_bankroll:string; death_at_ns:string}>('life');
+  assert.equal(stillDead.dead, true, 'transfers cannot revive the agent');
+  assert.equal(stillDead.spendable_bankroll, '0', 'transfers cannot restore spendable bankroll');
+  assert.equal(stillDead.retired_bankroll, depleted.retired_bankroll, 'transfers cannot alter the retired bankroll');
+  assert.equal(stillDead.death_at_ns, depleted.death_at_ns, 'repeated accrual and transfers preserve the death instant');
   const live = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
     initialBalance: 20n * 10n ** 24n,
     method: 'new_live',
