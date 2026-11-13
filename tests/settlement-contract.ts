@@ -3,6 +3,16 @@ import {KeyPairEd25519, Worker} from 'near-workspaces';
 import {functionCallAccessKey} from 'near-api-js/lib/transaction.js';
 
 const NEAR = 10n ** 24n;
+type PublishedPrediction = {id: string; agent_stake: string; challenger_stake: string};
+type PaymentState = {
+  payment_id: string;
+  attempt_id: string;
+  beneficiary_account_id: string;
+  amount: string;
+  status: string;
+  transfer_in_flight: boolean;
+  attempt_started_at_ns: string | null;
+};
 const worker = await Worker.init();
 try {
   const root = worker.rootAccount;
@@ -11,26 +21,32 @@ try {
     method: 'new',
     args: {owner_id: root.accountId},
   });
+
+  const deployContract = async (key: KeyPairEd25519, idleLifeNs = '604800000000000') => {
+    const deployed = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
+      initialBalance: 120n * NEAR,
+      method: 'new',
+      args: {
+        initial_bankroll: (100n * NEAR).toString(),
+        operational_reserve: (20n * NEAR).toString(),
+        idle_life_ns: idleLifeNs,
+        prediction_public_key: key.getPublicKey().toString(),
+        oracle_account_id: oracle.accountId,
+      },
+    });
+    await deployed.batch(deployed).addKey(
+      key.getPublicKey(),
+      functionCallAccessKey(deployed.accountId, ['publish_prediction'], 5n * NEAR),
+    ).transact();
+    return deployed;
+  };
+
   const predictionKey = KeyPairEd25519.fromRandom();
-  const contract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
-    initialBalance: 120n * NEAR,
-    method: 'new',
-    args: {
-      initial_bankroll: (100n * NEAR).toString(),
-      operational_reserve: (20n * NEAR).toString(),
-      idle_life_ns: '604800000000000',
-      prediction_public_key: predictionKey.getPublicKey().toString(),
-      oracle_account_id: oracle.accountId,
-    },
-  });
-  await contract.batch(contract).addKey(
-    predictionKey.getPublicKey(),
-    functionCallAccessKey(contract.accountId, ['publish_prediction'], 5n * NEAR),
-  ).transact();
+  const contract = await deployContract(predictionKey);
 
   const setOracleScenario = (scenario: string) => root.call(oracle, 'set_scenario', {scenario});
-  const publish = (id: number, decision = 'no') => contract.call<{id: string; agent_stake: string; challenger_stake: string}>(
-    contract,
+  const publishFor = (target: typeof contract, key: KeyPairEd25519, id: number, decision = 'no') => target.call<PublishedPrediction>(
+    target,
     'publish_prediction',
     {
       reference_multiplier: '340823333',
@@ -40,8 +56,9 @@ try {
       evidence_hash: id.toString(16).padStart(64, '0'),
       evidence_url: `https://evidence.reckon.invalid/${id.toString(16).padStart(64, '0')}.json`,
     },
-    {signWithKey: predictionKey},
+    {signWithKey: key},
   );
+  const publish = (id: number, decision = 'no') => publishFor(contract, predictionKey, id, decision);
 
   const first = await publish(1);
   const firstChallenger = await root.createSubAccount('equal-challenger', {initialBalance: 10n * NEAR});
@@ -98,7 +115,7 @@ try {
   assert.equal(winningReceipt.succeeded, true, winningReceipt.summary());
   const won = await contract.view<{
     outcome: string;
-    payment: {beneficiary_account_id: string; amount: string; status: string; transfer_in_flight: boolean} | null;
+    payment: Pick<PaymentState, 'beneficiary_account_id' | 'amount' | 'status' | 'transfer_in_flight'> | null;
   }>('get_prediction', {id: second.id});
   assert.equal(won.outcome, 'yes');
   assert.deepEqual(won.payment && {
@@ -224,34 +241,8 @@ try {
   assert.deepEqual(finalSummary, {published: '9', valid_outcomes: '3', correct_outcomes: '2'}, 'malformed, wrong-asset, stale, and stale-identity callbacks cannot enter accuracy');
 
   const recoveryKey = KeyPairEd25519.fromRandom();
-  const recoveryContract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
-    initialBalance: 120n * NEAR,
-    method: 'new',
-    args: {
-      initial_bankroll: (100n * NEAR).toString(),
-      operational_reserve: (20n * NEAR).toString(),
-      idle_life_ns: '604800000000000',
-      prediction_public_key: recoveryKey.getPublicKey().toString(),
-      oracle_account_id: oracle.accountId,
-    },
-  });
-  await recoveryContract.batch(recoveryContract).addKey(
-    recoveryKey.getPublicKey(),
-    functionCallAccessKey(recoveryContract.accountId, ['publish_prediction'], 5n * NEAR),
-  ).transact();
-  const recoveryPrediction = await recoveryContract.call<{id: string; agent_stake: string; challenger_stake: string}>(
-    recoveryContract,
-    'publish_prediction',
-    {
-      reference_multiplier: '340823333',
-      reference_decimals: 8,
-      decision: 'no',
-      confidence_ppm: 850_000,
-      evidence_hash: '000000000000000000000000000000000000000000000000000000000000000b',
-      evidence_url: 'https://evidence.reckon.invalid/payment-recovery.json',
-    },
-    {signWithKey: recoveryKey},
-  );
+  const recoveryContract = await deployContract(recoveryKey);
+  const recoveryPrediction = await publishFor(recoveryContract, recoveryKey, 11);
   const recoveryChallenger = await root.createSubAccount('recovery-challenger', {initialBalance: 10n * NEAR});
   await recoveryChallenger.call(recoveryContract, 'challenge_prediction', {prediction_id: recoveryPrediction.id}, {
     attachedDeposit: BigInt(recoveryPrediction.challenger_stake),
@@ -270,7 +261,7 @@ try {
   assert(failedSettlement.receipts_outcomes.length > 0, 'a transfer failure still completes the settlement callback path');
   const failedPayment = await recoveryContract.view<{
     outcome: string;
-    payment: {payment_id: string; attempt_id: string; beneficiary_account_id: string; amount: string; status: string; transfer_in_flight: boolean};
+    payment: PaymentState;
   }>('get_prediction', {id: recoveryPrediction.id});
   assert.equal(failedPayment.outcome, 'yes');
   assert.equal(failedPayment.payment.beneficiary_account_id, failedBeneficiaryId, 'the failed liability keeps its original beneficiary');
@@ -318,34 +309,8 @@ try {
   assert.equal(repeatedPaidRetry.succeeded, false, 'repeating a confirmed retry cannot create a second payout');
 
   const deadKey = KeyPairEd25519.fromRandom();
-  const deadContract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
-    initialBalance: 120n * NEAR,
-    method: 'new',
-    args: {
-      initial_bankroll: (100n * NEAR).toString(),
-      operational_reserve: (20n * NEAR).toString(),
-      idle_life_ns: '120000000000',
-      prediction_public_key: deadKey.getPublicKey().toString(),
-      oracle_account_id: oracle.accountId,
-    },
-  });
-  await deadContract.batch(deadContract).addKey(
-    deadKey.getPublicKey(),
-    functionCallAccessKey(deadContract.accountId, ['publish_prediction'], 5n * NEAR),
-  ).transact();
-  const deadPrediction = await deadContract.call<{id: string; agent_stake: string; challenger_stake: string}>(
-    deadContract,
-    'publish_prediction',
-    {
-      reference_multiplier: '340823333',
-      reference_decimals: 8,
-      decision: 'no',
-      confidence_ppm: 850_000,
-      evidence_hash: '000000000000000000000000000000000000000000000000000000000000000a',
-      evidence_url: 'https://evidence.reckon.invalid/dead-agent.json',
-    },
-    {signWithKey: deadKey},
-  );
+  const deadContract = await deployContract(deadKey, '120000000000');
+  const deadPrediction = await publishFor(deadContract, deadKey, 10);
   const deadChallenger = await root.createSubAccount('dead-agent-challenger', {initialBalance: 10n * NEAR});
   await deadChallenger.call(deadContract, 'challenge_prediction', {prediction_id: deadPrediction.id}, {attachedDeposit: BigInt(deadPrediction.challenger_stake)});
   const retiredBeforeDeath = BigInt((await deadContract.view<{retired_bankroll: string}>('life', {})).retired_bankroll);
@@ -413,40 +378,9 @@ try {
     evidence_url: 'https://evidence.reckon.invalid/dead-agent-after-transfer.json',
   }, {signWithKey: deadKey}), 'a late transfer cannot enable new publication');
 
-  const deployShortLivedContract = async (key: KeyPairEd25519) => {
-    const deployed = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
-      initialBalance: 120n * NEAR,
-      method: 'new',
-      args: {
-        initial_bankroll: (100n * NEAR).toString(),
-        operational_reserve: (20n * NEAR).toString(),
-        idle_life_ns: '120000000000',
-        prediction_public_key: key.getPublicKey().toString(),
-        oracle_account_id: oracle.accountId,
-      },
-    });
-    await deployed.batch(deployed).addKey(
-      key.getPublicKey(),
-      functionCallAccessKey(deployed.accountId, ['publish_prediction'], 5n * NEAR),
-    ).transact();
-    return deployed;
-  };
-
   const deadPayoutKey = KeyPairEd25519.fromRandom();
-  const deadPayoutContract = await deployShortLivedContract(deadPayoutKey);
-  const deadPayoutPrediction = await deadPayoutContract.call<{id: string; agent_stake: string; challenger_stake: string}>(
-    deadPayoutContract,
-    'publish_prediction',
-    {
-      reference_multiplier: '340823333',
-      reference_decimals: 8,
-      decision: 'no',
-      confidence_ppm: 850_000,
-      evidence_hash: '000000000000000000000000000000000000000000000000000000000000000e',
-      evidence_url: 'https://evidence.reckon.invalid/dead-payout.json',
-    },
-    {signWithKey: deadPayoutKey},
-  );
+  const deadPayoutContract = await deployContract(deadPayoutKey, '120000000000');
+  const deadPayoutPrediction = await publishFor(deadPayoutContract, deadPayoutKey, 14);
   const deadPayoutChallenger = await root.createSubAccount('dead-payout-challenger', {initialBalance: 10n * NEAR});
   await deadPayoutChallenger.call(deadPayoutContract, 'challenge_prediction', {prediction_id: deadPayoutPrediction.id}, {
     attachedDeposit: BigInt(deadPayoutPrediction.challenger_stake),
@@ -459,7 +393,7 @@ try {
   assert.equal(deadPayoutReceipt.succeeded, true, deadPayoutReceipt.summary());
   const deadPayout = await deadPayoutContract.view<{
     outcome: string;
-    payment: {beneficiary_account_id: string; amount: string; status: string};
+    payment: Pick<PaymentState, 'beneficiary_account_id' | 'amount' | 'status'>;
   }>('get_prediction', {id: deadPayoutPrediction.id});
   assert.equal(deadPayout.outcome, 'yes');
   assert.equal(deadPayout.payment.beneficiary_account_id, deadPayoutBeneficiary);
@@ -476,20 +410,8 @@ try {
   assert.equal((await deadPayoutContract.view<{dead: boolean}>('life', {})).dead, true, 'payout recovery cannot revive the agent');
 
   const deadRefundKey = KeyPairEd25519.fromRandom();
-  const deadRefundContract = await deployShortLivedContract(deadRefundKey);
-  const deadRefundPrediction = await deadRefundContract.call<{id: string; agent_stake: string; challenger_stake: string}>(
-    deadRefundContract,
-    'publish_prediction',
-    {
-      reference_multiplier: '340823333',
-      reference_decimals: 8,
-      decision: 'yes',
-      confidence_ppm: 850_000,
-      evidence_hash: '000000000000000000000000000000000000000000000000000000000000000f',
-      evidence_url: 'https://evidence.reckon.invalid/dead-refund.json',
-    },
-    {signWithKey: deadRefundKey},
-  );
+  const deadRefundContract = await deployContract(deadRefundKey, '120000000000');
+  const deadRefundPrediction = await publishFor(deadRefundContract, deadRefundKey, 15, 'yes');
   const deadRefundChallenger = await root.createSubAccount('dead-refund-challenger', {initialBalance: 10n * NEAR});
   await deadRefundChallenger.call(deadRefundContract, 'challenge_prediction', {prediction_id: deadRefundPrediction.id}, {
     attachedDeposit: BigInt(deadRefundPrediction.challenger_stake),
@@ -501,7 +423,7 @@ try {
   assert.equal(deadRefundReceipt.succeeded, true, deadRefundReceipt.summary());
   const deadRefund = await deadRefundContract.view<{
     outcome: string;
-    payment: {beneficiary_account_id: string; amount: string; status: string};
+    payment: Pick<PaymentState, 'beneficiary_account_id' | 'amount' | 'status'>;
   }>('get_prediction', {id: deadRefundPrediction.id});
   assert.equal(deadRefund.outcome, 'void');
   assert.equal(deadRefund.payment.beneficiary_account_id, deadRefundBeneficiary);

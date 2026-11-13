@@ -133,7 +133,6 @@ async function retryPendingPayments(): Promise<void> {
     const summary = await contract.view<{published: string}>('prediction_summary', {});
     const published = BigInt(summary.published);
     if (published === 0n) return;
-    const nowNs = await readSandboxBlockTimestamp();
     for (let start = 1n; start <= published; start += 50n) {
       const predictions = await contract.view<OnChainPrediction[]>('list_predictions', {
         start_id: start.toString(),
@@ -142,10 +141,10 @@ async function retryPendingPayments(): Promise<void> {
       for (const prediction of predictions) {
         const payment = prediction.payment;
         if (payment?.status !== 'pending') continue;
-        const timedOut = payment.transfer_in_flight
-          && payment.attempt_started_at_ns !== null
-          && nowNs >= BigInt(payment.attempt_started_at_ns) + BigInt(PAYMENT_TRANSFER_TIMEOUT_SECONDS) * 1_000_000_000n;
-        if (payment.transfer_in_flight && !timedOut) continue;
+        // A native transfer may have succeeded while its callback is delayed.
+        // Never issue a second transfer from a timeout alone; only a failed
+        // callback clears transfer_in_flight and makes this liability retryable.
+        if (payment.transfer_in_flight) continue;
         const now = Date.now();
         const schedule = paymentRetrySchedule.get(prediction.id);
         if (schedule && now < schedule.nextAttemptAtMs) continue;

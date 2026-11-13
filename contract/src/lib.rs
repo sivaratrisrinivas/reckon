@@ -681,10 +681,11 @@ impl Reckon {
 
     /// Retry a pending payout to its already-recorded beneficiary. This never creates a new
     /// wager and cannot redirect an obligation; only the existing payment identity is used.
-    /// A callback that remains in flight beyond the bounded transfer timeout is abandoned
-    /// before a new attempt gets a fresh identity.
+    /// A transfer whose callback is delayed past the expected timeout remains in flight.
+    /// Native transfers and callbacks are separate receipts, so starting a new transfer
+    /// without a failed callback could duplicate a transfer that already succeeded.
     pub fn retry_payment(&mut self, prediction_id: U64) -> PromiseOrValue<bool> {
-        let mut prediction = self
+        let prediction = self
             .predictions
             .get(&prediction_id.0)
             .cloned()
@@ -693,30 +694,12 @@ impl Reckon {
             prediction.outcome.is_some(),
             "Prediction has no final outcome"
         );
-        let mut payment = prediction
+        let payment = prediction
             .payment
             .clone()
             .expect("Prediction has no payment liability");
-        require!(
-            payment.status == PaymentStatus::Pending.as_str(),
-            "Payment is already confirmed"
-        );
-        if payment.transfer_in_flight {
-            let now = env::block_timestamp();
-            let started_at = payment
-                .attempt_started_at_ns
-                .expect("A pending transfer is missing its start timestamp")
-                .0;
-            require!(
-                now >= payment_timeout_ns(started_at),
-                "A payment attempt is still pending"
-            );
-            // Do not reuse the timed-out attempt identity. Any late callback for it
-            // will fail the identity check and cannot release the liability twice.
-            payment.transfer_in_flight = false;
-            payment.attempt_started_at_ns = None;
-            prediction.payment = Some(payment);
-            self.predictions.insert(prediction_id.0, prediction);
+        if let Err(message) = payment_retry_error(&payment, env::block_timestamp()) {
+            env::panic_str(message);
         }
         if let Some(transfer) = self.start_payment_transfer(prediction_id.0) {
             PromiseOrValue::Promise(transfer)
@@ -740,21 +723,9 @@ impl Reckon {
         let mut payment = prediction
             .payment
             .expect("Prediction has no payment liability");
-        let now = env::block_timestamp();
         require!(
-            payment.status == PaymentStatus::Pending.as_str()
-                && payment.transfer_in_flight
-                && payment.payment_id == callback_payment_id
-                && payment.attempt_id.0 == callback_attempt_id.0,
+            payment_callback_matches(&payment, &callback_payment_id, callback_attempt_id.0),
             "Payment receipt does not match a pending transfer"
-        );
-        let started_at = payment
-            .attempt_started_at_ns
-            .expect("A pending transfer is missing its start timestamp")
-            .0;
-        require!(
-            now < payment_timeout_ns(started_at),
-            "Payment receipt arrived after the transfer attempt expired"
         );
         let succeeded = env::promise_result_checked(0, 1_024).is_ok();
         payment.transfer_in_flight = false;
@@ -1061,6 +1032,36 @@ fn payment_timeout_ns(started_at_ns: u64) -> u64 {
         .expect("Payment timeout overflow")
 }
 
+fn payment_retry_error(payment: &PaymentLiability, now: u64) -> Result<(), &'static str> {
+    if payment.status != PaymentStatus::Pending.as_str() {
+        return Err("Payment is already confirmed");
+    }
+    if !payment.transfer_in_flight {
+        return Ok(());
+    }
+    let started_at = payment
+        .attempt_started_at_ns
+        .expect("A pending transfer is missing its start timestamp")
+        .0;
+    if now >= payment_timeout_ns(started_at) {
+        return Err(
+            "Transfer outcome is uncertain after the callback timeout; wait for its receipt before retrying",
+        );
+    }
+    Err("A payment attempt is still pending; retrying could duplicate a successful transfer")
+}
+
+fn payment_callback_matches(
+    payment: &PaymentLiability,
+    callback_payment_id: &str,
+    callback_attempt_id: u64,
+) -> bool {
+    payment.status == PaymentStatus::Pending.as_str()
+        && payment.transfer_in_flight
+        && payment.payment_id == callback_payment_id
+        && payment.attempt_id.0 == callback_attempt_id
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1077,10 +1078,24 @@ mod tests {
     }
 
     #[test]
-    fn payment_timeout_boundary_requires_a_new_attempt_identity() {
+    fn payment_timeout_keeps_unknown_transfer_in_flight_and_rejects_old_callbacks() {
         let started_at = 10_000;
         let timeout = payment_timeout_ns(started_at);
         assert_eq!(timeout, started_at + PAYMENT_TRANSFER_TIMEOUT_NS);
         assert!(timeout > started_at);
+
+        let payment = PaymentLiability {
+            payment_id: "payment".to_string(),
+            attempt_id: U64(9),
+            beneficiary_account_id: "alice.test.near".to_string(),
+            amount: U128(1),
+            status: PaymentStatus::Pending.as_str().to_string(),
+            transfer_in_flight: true,
+            attempt_started_at_ns: Some(U64(started_at)),
+        };
+        assert!(payment_retry_error(&payment, timeout).is_err());
+        assert!(payment_retry_error(&payment, timeout - 1).is_err());
+        assert!(!payment_callback_matches(&payment, "payment", 8));
+        assert!(payment_callback_matches(&payment, "payment", 9));
     }
 }
