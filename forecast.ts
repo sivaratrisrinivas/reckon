@@ -5,6 +5,7 @@ import {validateModel, validateOracleReport} from './diagnostic/validate.js';
 
 const QUESTION = 'Will the NEAR/USD settlement price be strictly above the reference price?';
 export const SETTLEMENT_WINDOW_SECONDS = 120;
+export const PAYMENT_TRANSFER_TIMEOUT_SECONDS = 300;
 const RULES = `${QUESTION} The prediction deadline is five minutes after publication. The challenge window is thirty seconds after publication. Settlement uses the first successful valid oracle request initiated after the deadline and completed within ${SETTLEMENT_WINDOW_SECONDS} seconds. Caller timing and provider caching affect the observation; it is not an exact historical expiry price. Equal prices resolve to no. If no valid result arrives in the window, the prediction is void.`;
 const SYSTEM_PROMPT = 'Return a structured judgment using only the supplied evidence. Confidence is the probability that your selected side is correct. You may abstain with null confidence when the evidence is insufficient.';
 const RESPONSE_FORMAT = {
@@ -72,6 +73,7 @@ export type OnChainPrediction = {
     amount: string;
     status: 'pending' | 'paid';
     transfer_in_flight: boolean;
+    attempt_started_at_ns: string | null;
   } | null;
 };
 

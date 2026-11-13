@@ -292,8 +292,15 @@ try {
   assert.equal(staleCallback.succeeded, false, 'a stale callback cannot complete a later payment attempt');
   const restoredBeneficiary = await root.createAccount(failedBeneficiaryId, {initialBalance: NEAR, keyPair: recoveryKey});
   assert.equal(await restoredBeneficiary.exists(), true);
-  const finalRecovery = await root.callRaw(recoveryContract, 'retry_payment', {prediction_id: recoveryPrediction.id}, {gas: 250n * 10n ** 12n});
-  assert.equal(finalRecovery.succeeded, true, finalRecovery.summary());
+  const beneficiaryBeforeConcurrentRecovery = BigInt((await restoredBeneficiary.balance()).total);
+  const contractBeforeConcurrentRecovery = BigInt((await recoveryContract.balance()).total);
+  const storageBeforeConcurrentRecovery = BigInt((await recoveryContract.accountView()).storage_usage);
+  const concurrentRecovery = await Promise.all([
+    root.callRaw(recoveryContract, 'retry_payment', {prediction_id: recoveryPrediction.id}, {gas: 250n * 10n ** 12n}),
+    root.callRaw(recoveryContract, 'retry_payment', {prediction_id: recoveryPrediction.id}, {gas: 250n * 10n ** 12n}),
+  ]);
+  assert.equal(concurrentRecovery.filter(receipt => receipt.succeeded).length, 1, 'concurrent retries accept at most one transfer attempt');
+  assert(concurrentRecovery.every(receipt => receipt.receipts_outcomes.length > 0), 'concurrent retry calls produce inspectable receipts and gas outcomes');
   const paidRecovery = await recoveryContract.view<typeof failedPayment>('get_prediction', {id: recoveryPrediction.id});
   assert.equal(paidRecovery.outcome, 'yes', 'recovery does not change the final outcome');
   assert.equal(paidRecovery.payment.status, 'paid');
@@ -301,6 +308,14 @@ try {
   const paidLife = await recoveryContract.view<{pending_payment_liabilities: string; challenger_custody: string}>('life');
   assert.equal(paidLife.pending_payment_liabilities, '0', 'confirmed payment releases the recorded liability');
   assert.equal(paidLife.challenger_custody, '0');
+  const beneficiaryAfterConcurrentRecovery = BigInt((await restoredBeneficiary.balance()).total);
+  const contractAfterConcurrentRecovery = BigInt((await recoveryContract.balance()).total);
+  const storageAfterConcurrentRecovery = BigInt((await recoveryContract.accountView()).storage_usage);
+  assert(beneficiaryAfterConcurrentRecovery - beneficiaryBeforeConcurrentRecovery >= BigInt(paidRecovery.payment.amount), 'one accepted retry credits the fixed beneficiary by the fixed liability');
+  assert(contractBeforeConcurrentRecovery - contractAfterConcurrentRecovery >= BigInt(paidRecovery.payment.amount), 'one accepted retry removes only the fixed liability from contract balance');
+  assert(storageAfterConcurrentRecovery >= storageBeforeConcurrentRecovery, 'retry bookkeeping does not redirect or erase the recorded liability');
+  const repeatedPaidRetry = await root.callRaw(recoveryContract, 'retry_payment', {prediction_id: recoveryPrediction.id}, {gas: 250n * 10n ** 12n});
+  assert.equal(repeatedPaidRetry.succeeded, false, 'repeating a confirmed retry cannot create a second payout');
 
   const deadKey = KeyPairEd25519.fromRandom();
   const deadContract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {

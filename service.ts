@@ -3,7 +3,7 @@ import {existsSync} from 'node:fs';
 import {readFile, readdir} from 'node:fs/promises';
 import {KeyPairEd25519, Worker} from 'near-workspaces';
 import {functionCallAccessKey} from 'near-api-js/lib/transaction.js';
-import {ForecastService, type FixtureScenario, type OnChainPrediction, type PredictionChain, type PredictionQuote, type ProviderMode} from './forecast.js';
+import {ForecastService, PAYMENT_TRANSFER_TIMEOUT_SECONDS, type FixtureScenario, type OnChainPrediction, type PredictionChain, type PredictionQuote, type ProviderMode} from './forecast.js';
 import {SETTLEMENT_WINDOW_SECONDS} from './forecast.js';
 import {publishBlobEvidence} from './evidence-store.js';
 
@@ -133,13 +133,19 @@ async function retryPendingPayments(): Promise<void> {
     const summary = await contract.view<{published: string}>('prediction_summary', {});
     const published = BigInt(summary.published);
     if (published === 0n) return;
-    const start = published > 50n ? published - 49n : 1n;
-    const predictions = await contract.view<OnChainPrediction[]>('list_predictions', {
-      start_id: start.toString(),
-      limit: '50',
-    });
-    for (const prediction of predictions) {
-      if (prediction.payment?.status === 'pending' && !prediction.payment.transfer_in_flight) {
+    const nowNs = await readSandboxBlockTimestamp();
+    for (let start = 1n; start <= published; start += 50n) {
+      const predictions = await contract.view<OnChainPrediction[]>('list_predictions', {
+        start_id: start.toString(),
+        limit: '50',
+      });
+      for (const prediction of predictions) {
+        const payment = prediction.payment;
+        if (payment?.status !== 'pending') continue;
+        const timedOut = payment.transfer_in_flight
+          && payment.attempt_started_at_ns !== null
+          && nowNs >= BigInt(payment.attempt_started_at_ns) + BigInt(PAYMENT_TRANSFER_TIMEOUT_SECONDS) * 1_000_000_000n;
+        if (payment.transfer_in_flight && !timedOut) continue;
         const now = Date.now();
         const schedule = paymentRetrySchedule.get(prediction.id);
         if (schedule && now < schedule.nextAttemptAtMs) continue;
@@ -239,6 +245,7 @@ const server = createServer(async (req, res) => {
         evidence_hosting: providerMode === 'live' ? 'Vercel Blob public storage' : 'local deterministic storage fixture',
         model_calls_per_utc_day: providerMode === 'live' ? 12 : null,
         settlement_window_seconds: SETTLEMENT_WINDOW_SECONDS,
+        payment_transfer_timeout_seconds: PAYMENT_TRANSFER_TIMEOUT_SECONDS,
         settlement_oracle: oracleFixture ? oracleFixture.accountId : 'price-oracle.testnet',
       }, {'Cache-Control': 'no-store'});
       return;

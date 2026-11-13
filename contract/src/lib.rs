@@ -31,8 +31,57 @@ const MAX_ORACLE_RESPONSE_AGE_NS: u64 = 300 * 1_000_000_000;
 const ORACLE_REQUEST_DEPOSIT: u128 = 20_000_000_000_000_000_000_000;
 const ORACLE_REQUEST_GAS: Gas = Gas::from_tgas(200);
 const PAYMENT_CALLBACK_GAS: Gas = Gas::from_tgas(30);
+// A transfer callback is expected to complete promptly. Once this bounded
+// interval expires, a keeper or browser can abandon the attempt and create a
+// fresh attempt with a new identity. The callback identity check still makes
+// the abandoned attempt unable to change the liability.
+const PAYMENT_TRANSFER_TIMEOUT_NS: u64 = 5 * 60 * 1_000_000_000;
 const ORACLE_ASSET_ID: &str = "wrap.near";
 const MAX_PREDICTION_PAGE_SIZE: u64 = 50;
+
+enum SettlementStatus {
+    Waiting,
+    Observing,
+    Resolved,
+    Void,
+}
+
+impl SettlementStatus {
+    const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Waiting => "waiting",
+            Self::Observing => "observing",
+            Self::Resolved => "resolved",
+            Self::Void => "void",
+        }
+    }
+
+    fn is(value: &str, expected: Self) -> bool {
+        value == expected.as_str()
+    }
+}
+
+enum PaymentStatus {
+    Pending,
+    Paid,
+}
+
+impl PaymentStatus {
+    const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Paid => "paid",
+        }
+    }
+}
+
+struct ProjectedLife {
+    spendable: u128,
+    retired: u128,
+    fractional: u128,
+    dead: bool,
+    death_at_ns: u64,
+}
 
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
@@ -121,6 +170,7 @@ pub struct PaymentLiability {
     amount: U128,
     status: String,
     transfer_in_flight: bool,
+    attempt_started_at_ns: Option<U64>,
 }
 
 #[near(serializers = [json])]
@@ -213,8 +263,12 @@ impl Reckon {
     }
 
     pub fn life(&self) -> Life {
-        let (spendable, retired, fractional, dead, death_at_ns) =
-            self.project(env::block_timestamp());
+        let projection = self.project(env::block_timestamp());
+        let spendable = projection.spendable;
+        let retired = projection.retired;
+        let fractional = projection.fractional;
+        let dead = projection.dead;
+        let death_at_ns = projection.death_at_ns;
         let numerator =
             U256::from(spendable) * U256::from(self.idle_life_ns) - U256::from(fractional);
         let remaining = if dead {
@@ -323,7 +377,7 @@ impl Reckon {
             challenger_account_id: None,
             challenged_at_ns: None,
             agent_stake_committed: false,
-            settlement_status: "waiting".to_string(),
+            settlement_status: SettlementStatus::Waiting.as_str().to_string(),
             settlement_request_id: None,
             settlement_requested_at_ns: None,
             settlement_price: None,
@@ -418,7 +472,7 @@ impl Reckon {
             now >= prediction.deadline_ns.0,
             "Prediction deadline has not passed"
         );
-        require!(now < settlement_cutoff, "Settlement window has closed");
+        require!(callback_before_cutoff(now, settlement_cutoff), "Settlement window has closed");
         require!(
             prediction.settlement_request_id.is_none(),
             "An oracle request is already pending"
@@ -434,7 +488,7 @@ impl Reckon {
             prediction_id.0,
             request_sequence
         );
-        prediction.settlement_status = "observing".to_string();
+        prediction.settlement_status = SettlementStatus::Observing.as_str().to_string();
         prediction.settlement_request_id = Some(request_id.clone());
         prediction.settlement_requested_at_ns = Some(U64(now));
         self.predictions.insert(prediction_id.0, prediction);
@@ -477,7 +531,7 @@ impl Reckon {
             .cloned()
             .expect("Prediction does not exist");
         require!(
-            prediction.settlement_status == "observing"
+            SettlementStatus::is(&prediction.settlement_status, SettlementStatus::Observing)
                 && prediction.settlement_request_id.as_deref() == Some(msg.as_str()),
             "Oracle request identity does not match"
         );
@@ -485,7 +539,7 @@ impl Reckon {
         let now = env::block_timestamp();
         let cutoff = settlement_cutoff_ns(prediction.deadline_ns.0);
         require!(
-            now < cutoff,
+            callback_before_cutoff(now, cutoff),
             "Oracle response did not complete before the settlement cutoff"
         );
         let requested_at = prediction
@@ -515,7 +569,7 @@ impl Reckon {
                 .checked_add(1)
                 .expect("Correct outcome count overflow");
         }
-        prediction.settlement_status = "resolved".to_string();
+        prediction.settlement_status = SettlementStatus::Resolved.as_str().to_string();
         prediction.settlement_price = Some(price);
         prediction.outcome = Some(outcome.to_string());
         prediction.settled_at_ns = Some(U64(now));
@@ -545,30 +599,18 @@ impl Reckon {
                         .expect("Spendable bankroll overflow");
                 }
             } else {
-                self.challenger_custody = self
-                    .challenger_custody
-                    .checked_sub(prediction.challenger_stake.0)
-                    .expect("Challenger custody underflow");
                 let amount = prediction
                     .agent_stake
                     .0
                     .checked_add(prediction.challenger_stake.0)
                     .expect("Payout amount overflow");
-                self.pending_payment_liabilities = self
-                    .pending_payment_liabilities
-                    .checked_add(amount)
-                    .expect("Pending payment liability overflow");
-                prediction.payment = Some(PaymentLiability {
-                    payment_id: payment_id(prediction_id),
-                    attempt_id: U64(0),
-                    beneficiary_account_id: prediction
-                        .challenger_account_id
-                        .clone()
-                        .expect("Missing challenger account"),
-                    amount: U128(amount),
-                    status: "pending".to_string(),
-                    transfer_in_flight: false,
-                });
+                let challenger_stake = prediction.challenger_stake.0;
+                self.create_payment_liability(
+                    &mut prediction,
+                    challenger_stake,
+                    amount,
+                    payment_id(prediction_id),
+                );
             }
         }
 
@@ -594,7 +636,10 @@ impl Reckon {
             .expect("Prediction does not exist");
         let now = env::block_timestamp();
         let settlement_cutoff = settlement_cutoff_ns(prediction.deadline_ns.0);
-        require!(now >= settlement_cutoff, "Settlement window is still open");
+        require!(
+            void_at_or_after_cutoff(now, settlement_cutoff),
+            "Settlement window is still open"
+        );
         self.accrue_at(now);
 
         if prediction.agent_stake_committed {
@@ -613,28 +658,16 @@ impl Reckon {
                     .checked_add(prediction.agent_stake.0)
                     .expect("Spendable bankroll overflow");
             }
-            self.pending_payment_liabilities = self
-                .pending_payment_liabilities
-                .checked_add(prediction.challenger_stake.0)
-                .expect("Pending payment liability overflow");
-            self.challenger_custody = self
-                .challenger_custody
-                .checked_sub(prediction.challenger_stake.0)
-                .expect("Challenger custody underflow");
-            prediction.payment = Some(PaymentLiability {
-                payment_id: payment_id(prediction_id.0),
-                attempt_id: U64(0),
-                beneficiary_account_id: prediction
-                    .challenger_account_id
-                    .clone()
-                    .expect("Missing challenger account"),
-                amount: prediction.challenger_stake,
-                status: "pending".to_string(),
-                transfer_in_flight: false,
-            });
+            let challenger_stake = prediction.challenger_stake.0;
+            self.create_payment_liability(
+                &mut prediction,
+                challenger_stake,
+                challenger_stake,
+                payment_id(prediction_id.0),
+            );
         }
         prediction.agent_stake_committed = false;
-        prediction.settlement_status = "void".to_string();
+        prediction.settlement_status = SettlementStatus::Void.as_str().to_string();
         prediction.outcome = Some("void".to_string());
         prediction.settled_at_ns = Some(U64(now));
         self.active_prediction_id = None;
@@ -648,25 +681,43 @@ impl Reckon {
 
     /// Retry a pending payout to its already-recorded beneficiary. This never creates a new
     /// wager and cannot redirect an obligation; only the existing payment identity is used.
+    /// A callback that remains in flight beyond the bounded transfer timeout is abandoned
+    /// before a new attempt gets a fresh identity.
     pub fn retry_payment(&mut self, prediction_id: U64) -> PromiseOrValue<bool> {
-        let prediction = self
+        let mut prediction = self
             .predictions
             .get(&prediction_id.0)
             .cloned()
             .expect("Prediction does not exist");
-        let payment = prediction
-            .payment
-            .as_ref()
-            .expect("Prediction has no payment liability");
         require!(
             prediction.outcome.is_some(),
             "Prediction has no final outcome"
         );
-        require!(payment.status == "pending", "Payment is already confirmed");
+        let mut payment = prediction
+            .payment
+            .clone()
+            .expect("Prediction has no payment liability");
         require!(
-            !payment.transfer_in_flight,
-            "A payment attempt is already pending"
+            payment.status == PaymentStatus::Pending.as_str(),
+            "Payment is already confirmed"
         );
+        if payment.transfer_in_flight {
+            let now = env::block_timestamp();
+            let started_at = payment
+                .attempt_started_at_ns
+                .expect("A pending transfer is missing its start timestamp")
+                .0;
+            require!(
+                now >= payment_timeout_ns(started_at),
+                "A payment attempt is still pending"
+            );
+            // Do not reuse the timed-out attempt identity. Any late callback for it
+            // will fail the identity check and cannot release the liability twice.
+            payment.transfer_in_flight = false;
+            payment.attempt_started_at_ns = None;
+            prediction.payment = Some(payment);
+            self.predictions.insert(prediction_id.0, prediction);
+        }
         if let Some(transfer) = self.start_payment_transfer(prediction_id.0) {
             PromiseOrValue::Promise(transfer)
         } else {
@@ -689,17 +740,27 @@ impl Reckon {
         let mut payment = prediction
             .payment
             .expect("Prediction has no payment liability");
+        let now = env::block_timestamp();
         require!(
-            payment.status == "pending"
+            payment.status == PaymentStatus::Pending.as_str()
                 && payment.transfer_in_flight
                 && payment.payment_id == callback_payment_id
                 && payment.attempt_id.0 == callback_attempt_id.0,
             "Payment receipt does not match a pending transfer"
         );
+        let started_at = payment
+            .attempt_started_at_ns
+            .expect("A pending transfer is missing its start timestamp")
+            .0;
+        require!(
+            now < payment_timeout_ns(started_at),
+            "Payment receipt arrived after the transfer attempt expired"
+        );
         let succeeded = env::promise_result_checked(0, 1_024).is_ok();
         payment.transfer_in_flight = false;
+        payment.attempt_started_at_ns = None;
         if succeeded {
-            payment.status = "paid".to_string();
+            payment.status = PaymentStatus::Paid.as_str().to_string();
             self.pending_payment_liabilities = self
                 .pending_payment_liabilities
                 .checked_sub(payment.amount.0)
@@ -742,10 +803,40 @@ impl Reckon {
 }
 
 impl Reckon {
+    fn create_payment_liability(
+        &mut self,
+        prediction: &mut Prediction,
+        custody_amount: u128,
+        liability_amount: u128,
+        payment_id: String,
+    ) {
+        let beneficiary_account_id = prediction
+            .challenger_account_id
+            .clone()
+            .expect("Missing challenger account");
+        self.challenger_custody = self
+            .challenger_custody
+            .checked_sub(custody_amount)
+            .expect("Challenger custody underflow");
+        self.pending_payment_liabilities = self
+            .pending_payment_liabilities
+            .checked_add(liability_amount)
+            .expect("Pending payment liability overflow");
+        prediction.payment = Some(PaymentLiability {
+            payment_id,
+            attempt_id: U64(0),
+            beneficiary_account_id,
+            amount: U128(liability_amount),
+            status: PaymentStatus::Pending.as_str().to_string(),
+            transfer_in_flight: false,
+            attempt_started_at_ns: None,
+        });
+    }
+
     fn start_payment_transfer(&mut self, prediction_id: u64) -> Option<Promise> {
         let mut prediction = self.predictions.get(&prediction_id).cloned()?;
         let mut payment = prediction.payment.clone()?;
-        if payment.status != "pending" || payment.transfer_in_flight {
+        if payment.status != PaymentStatus::Pending.as_str() || payment.transfer_in_flight {
             return None;
         }
         let attempt_id = self.next_payment_attempt_id;
@@ -760,6 +851,7 @@ impl Reckon {
             .expect("Invalid payment beneficiary");
         let amount = payment.amount.0;
         let payment_id = payment.payment_id.clone();
+        payment.attempt_started_at_ns = Some(U64(env::block_timestamp()));
         prediction.payment = Some(payment);
         self.predictions.insert(prediction_id, prediction);
 
@@ -789,7 +881,9 @@ impl Reckon {
         let challenge_closes_at = now
             .checked_add(CHALLENGE_WINDOW_NS)
             .expect("Challenge deadline overflow");
-        let (spendable_at_close, _, _, dead_at_close, _) = self.project(challenge_closes_at);
+        let projection = self.project(challenge_closes_at);
+        let spendable_at_close = projection.spendable;
+        let dead_at_close = projection.dead;
         require!(
             !dead_at_close,
             "Reckon will be dead before the challenge window closes"
@@ -824,24 +918,24 @@ impl Reckon {
     }
 
     fn accrue_at(&mut self, now: u64) {
-        let (spendable, retired, fractional, dead, death_at_ns) = self.project(now);
-        self.spendable = spendable;
-        self.retired = retired;
-        self.fractional = fractional;
-        self.dead = dead;
-        self.death_at_ns = death_at_ns;
+        let projection = self.project(now);
+        self.spendable = projection.spendable;
+        self.retired = projection.retired;
+        self.fractional = projection.fractional;
+        self.dead = projection.dead;
+        self.death_at_ns = projection.death_at_ns;
         self.last_accrual_ns = now;
     }
 
-    fn project(&self, now: u64) -> (u128, u128, u128, bool, u64) {
+    fn project(&self, now: u64) -> ProjectedLife {
         if self.dead {
-            return (
-                self.spendable,
-                self.retired,
-                self.fractional,
-                true,
-                self.death_at_ns,
-            );
+            return ProjectedLife {
+                spendable: self.spendable,
+                retired: self.retired,
+                fractional: self.fractional,
+                dead: true,
+                death_at_ns: self.death_at_ns,
+            };
         }
         let elapsed = now.saturating_sub(self.last_accrual_ns);
         let charge =
@@ -858,24 +952,25 @@ impl Reckon {
                 self.last_accrual_ns
                     .saturating_add(elapsed_to_death.as_u64())
             };
-            return (
-                0,
-                self.retired
+            return ProjectedLife {
+                spendable: 0,
+                retired: self
+                    .retired
                     .checked_add(self.spendable)
                     .expect("Retired bankroll overflow"),
-                0,
-                true,
+                fractional: 0,
+                dead: true,
                 death_at_ns,
-            );
+            };
         }
         let whole = whole.as_u128();
-        (
-            self.spendable - whole,
-            self.retired + whole,
-            (charge % U256::from(self.idle_life_ns)).as_u128(),
-            false,
-            0,
-        )
+        ProjectedLife {
+            spendable: self.spendable - whole,
+            retired: self.retired + whole,
+            fractional: (charge % U256::from(self.idle_life_ns)).as_u128(),
+            dead: false,
+            death_at_ns: 0,
+        }
     }
 }
 
@@ -950,4 +1045,42 @@ fn settlement_cutoff_ns(deadline_ns: u64) -> u64 {
     deadline_ns
         .checked_add(SETTLEMENT_WINDOW_NS)
         .expect("Settlement cutoff overflow")
+}
+
+fn callback_before_cutoff(now: u64, cutoff: u64) -> bool {
+    now < cutoff
+}
+
+fn void_at_or_after_cutoff(now: u64, cutoff: u64) -> bool {
+    now >= cutoff
+}
+
+fn payment_timeout_ns(started_at_ns: u64) -> u64 {
+    started_at_ns
+        .checked_add(PAYMENT_TRANSFER_TIMEOUT_NS)
+        .expect("Payment timeout overflow")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settlement_boundary_is_exclusive_for_callbacks_and_inclusive_for_voids() {
+        let cutoff = settlement_cutoff_ns(10_000);
+        assert!(callback_before_cutoff(cutoff - 1, cutoff));
+        assert_eq!(10_000 + SETTLEMENT_WINDOW_NS, cutoff);
+        assert!(!callback_before_cutoff(cutoff, cutoff));
+        assert!(void_at_or_after_cutoff(cutoff, cutoff));
+        assert!(void_at_or_after_cutoff(cutoff + 1, cutoff));
+        assert!(!void_at_or_after_cutoff(cutoff - 1, cutoff));
+    }
+
+    #[test]
+    fn payment_timeout_boundary_requires_a_new_attempt_identity() {
+        let started_at = 10_000;
+        let timeout = payment_timeout_ns(started_at);
+        assert_eq!(timeout, started_at + PAYMENT_TRANSFER_TIMEOUT_NS);
+        assert!(timeout > started_at);
+    }
 }

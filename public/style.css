@@ -143,6 +143,7 @@ p { color: var(--muted); }
 .record-entry h3 { margin: 0; font-size: 1rem; }
 .record-entry p { margin: .4rem 0 0; }
 .record-entry .record-payment { font-size: .875rem; }
+.record-entry .record-recovery { min-height: 2.5rem; margin-top: .75rem; }
 .record-entry.is-void { border-style: dashed; }
 
 footer {

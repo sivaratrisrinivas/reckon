@@ -19,6 +19,9 @@ let challengerPublicKey = null;
 const publicRecord = new Map();
 let recordSummary = {published: '0', valid_outcomes: '0', correct_outcomes: '0'};
 let recordRefreshInFlight = false;
+let chainTimestampNs = null;
+let chainTimestampRefreshInFlight = false;
+let chainTimestampTimer = null;
 
 function near(amount) {
   const value = BigInt(amount);
@@ -48,6 +51,41 @@ function duration(ns) {
 function dateFromNs(ns) {
   const milliseconds = Number(BigInt(ns) / 1_000_000n);
   return new Date(milliseconds).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'medium'});
+}
+
+function challengeWindowOpen(prediction) {
+  return chainTimestampNs !== null && chainTimestampNs < BigInt(prediction.challenge_deadline_ns);
+}
+
+async function refreshChainTimestamp() {
+  if (chainTimestampRefreshInFlight) return chainTimestampNs;
+  chainTimestampRefreshInFlight = true;
+  try {
+    const block = await sandboxRpc('block', {finality: 'optimistic'});
+    const timestamp = block?.header?.timestamp_nanosec;
+    if (typeof timestamp !== 'string' || !/^\d+$/.test(timestamp)) throw new Error('Sandbox block timestamp is missing');
+    chainTimestampNs = BigInt(timestamp);
+    renderChallengeOffer();
+    if (chainTimestampTimer !== null) globalThis.clearTimeout(chainTimestampTimer);
+    // Force a fresh authoritative read before the button can remain enabled
+    // through a chain deadline. Local time is not used to decide acceptance.
+    const challengeDeadline = currentPrediction?.challenge_deadline_ns;
+    const untilChallengeDeadlineMs = challengeDeadline && chainTimestampNs < BigInt(challengeDeadline)
+      ? Number((BigInt(challengeDeadline) - chainTimestampNs) / 1_000_000n)
+      : 0;
+    chainTimestampTimer = globalThis.setTimeout(() => {
+      chainTimestampNs = null;
+      renderChallengeOffer();
+      void refreshChainTimestamp();
+    }, currentPrediction && untilChallengeDeadlineMs > 0 ? untilChallengeDeadlineMs : 5_000);
+    return chainTimestampNs;
+  } catch {
+    chainTimestampNs = null;
+    renderChallengeOffer();
+    return null;
+  } finally {
+    chainTimestampRefreshInFlight = false;
+  }
 }
 
 function showStatus(message, kind = '') {
@@ -113,8 +151,8 @@ function renderSettlementState(prediction) {
   } else if (prediction.settlement_status === 'observing') {
     state.textContent = `The keeper requested the declared oracle. A valid response must complete before the ${settlementWindowSeconds()}-second cutoff. The contract uses block time; dates on this device are estimates.`;
     showStatus(`Prediction #${prediction.id} is pending oracle observation.`, 'settling');
-  } else if (BigInt(Date.now()) * 1_000_000n >= BigInt(prediction.deadline_ns)) {
-    state.textContent = 'This device estimates that the deadline has passed. The contract uses block time; the keeper requests the declared oracle after the on-chain deadline.';
+  } else if (chainTimestampNs !== null && chainTimestampNs >= BigInt(prediction.deadline_ns)) {
+    state.textContent = 'The sandbox chain deadline has passed. The keeper requests the declared oracle after the on-chain deadline.';
     showStatus(`Prediction #${prediction.id} is waiting for the on-chain deadline and keeper request.`, 'settling');
   } else {
     state.textContent = 'The prediction resolves automatically after its five-minute deadline. No result-reveal action is needed.';
@@ -132,10 +170,10 @@ function renderPaymentRecovery(prediction) {
     return;
   }
   panel.hidden = false;
-  button.disabled = paymentRetryInFlight || payment.transfer_in_flight;
-  button.textContent = payment.transfer_in_flight ? 'Payment attempt pending…' : 'Retry payment';
+  button.disabled = paymentRetryInFlight;
+  button.textContent = payment.transfer_in_flight ? 'Recover timed-out attempt' : 'Retry payment';
   $('payment-recovery-state').textContent = payment.transfer_in_flight
-    ? `A transfer attempt is pending for ${near(payment.amount)} to ${payment.beneficiary_account_id}. The outcome is final; the browser will not call it paid until the receipt confirms.`
+    ? `A transfer attempt is pending for ${near(payment.amount)} to ${payment.beneficiary_account_id}. Recovery becomes available after the bounded timeout; an old receipt cannot change a later attempt.`
     : `The final ${prediction.outcome === 'void' ? 'refund' : 'payout'} of ${near(payment.amount)} remains owed to ${payment.beneficiary_account_id}. Recovery keeps this beneficiary and amount fixed; it does not create a new wager.`;
 }
 
@@ -147,8 +185,7 @@ function renderChallengeOffer() {
     if (!currentPrediction?.outcome) showStatus('Reckon is permanently dead. New challenges are disabled.', 'unavailable');
     return;
   }
-  if (!currentPrediction || currentPrediction.outcome || currentPrediction.settlement_status === 'observing'
-    || BigInt(Date.now()) * 1_000_000n >= BigInt(currentPrediction.deadline_ns)) {
+  if (!currentPrediction || currentPrediction.outcome || currentPrediction.settlement_status === 'observing') {
     panel.hidden = true;
     return;
   }
@@ -166,7 +203,12 @@ function renderChallengeOffer() {
     return;
   }
 
-  const deadlineOpen = BigInt(Date.now()) * 1_000_000n < BigInt(currentPrediction.challenge_deadline_ns);
+  if (chainTimestampNs === null) {
+    panel.hidden = true;
+    showStatus(`Prediction #${currentPrediction.id} is checking the authoritative sandbox deadline.`, 'settling');
+    return;
+  }
+  const deadlineOpen = challengeWindowOpen(currentPrediction);
   if (!deadlineOpen) {
     panel.hidden = true;
     showStatus(`Prediction #${currentPrediction.id} challenge window is closed. Its original deadline was not extended.`, 'closed');
@@ -218,6 +260,15 @@ function renderPublicRecord() {
     else if (prediction.payment.status === 'paid') payment.textContent = `Payment receipt confirmed on chain · ${near(prediction.payment.amount)} to ${prediction.payment.beneficiary_account_id}.`;
     else payment.textContent = `Payment pending · ${near(prediction.payment.amount)} owed to ${prediction.payment.beneficiary_account_id}.`;
     row.append(title, outcome, payment);
+    if (prediction.payment?.status === 'pending') {
+      const recover = document.createElement('button');
+      recover.type = 'button';
+      recover.className = 'secondary record-recovery';
+      recover.textContent = prediction.payment.transfer_in_flight ? 'Recover timed-out attempt' : 'Retry payment';
+      recover.disabled = paymentRetryInFlight;
+      recover.addEventListener('click', () => void retryPaymentForPrediction(prediction.id));
+      row.append(recover);
+    }
     return row;
   });
   $('prediction-record').replaceChildren(...rows);
@@ -290,6 +341,7 @@ async function loadSandboxWallet() {
     challengerAccountId = wallet.account_id;
     $('wallet-state').textContent = `CONNECTED · ${wallet.account_id} · EPHEMERAL SANDBOX KEY`;
     $('wallet-balance').textContent = `Available ${near(wallet.available_balance)}`;
+    void refreshChainTimestamp();
     renderChallengeOffer();
     return true;
   } catch {
@@ -410,9 +462,10 @@ function cancelWalletApproval() {
   cancelChallengeIntent('Challenge approval cancelled. The published forecast remains available and no stake moved.');
 }
 
-function openChallengeApproval() {
+async function openChallengeApproval() {
   if (!challengerSecretKey || !currentPrediction || challengeInFlight) return;
-  if (BigInt(Date.now()) * 1_000_000n >= BigInt(currentPrediction.challenge_deadline_ns)) {
+  await refreshChainTimestamp();
+  if (!challengeWindowOpen(currentPrediction)) {
     renderChallengeOffer();
     return;
   }
@@ -428,7 +481,8 @@ async function approveChallenge() {
     return;
   }
   const prediction = currentPrediction;
-  if (BigInt(Date.now()) * 1_000_000n >= BigInt(prediction.challenge_deadline_ns)) {
+  await refreshChainTimestamp();
+  if (!challengeWindowOpen(prediction)) {
     $('challenge-dialog').close();
     renderChallengeOffer();
     return;
@@ -494,11 +548,12 @@ async function approveChallenge() {
   } catch (error) {
     const message = error instanceof Error ? error.message.toLowerCase() : '';
     await refreshPrediction();
+    await refreshChainTimestamp();
     if (currentPrediction?.challenger_account_id) {
       $('transaction-state').textContent = currentPrediction.challenger_account_id === challengerAccountId
         ? 'The contract confirms your challenge was accepted.'
         : 'The position was taken by another wallet before this transaction arrived.';
-    } else if (message.includes('challenge window has closed') || BigInt(Date.now()) * 1_000_000n >= BigInt(prediction.challenge_deadline_ns)) {
+    } else if (message.includes('challenge window has closed') || !challengeWindowOpen(prediction)) {
       showStatus(`Prediction #${prediction.id} expired before acceptance. Its original deadline was not extended.`, 'closed');
       $('transaction-state').textContent = 'The challenge was rejected as late. The incoming deposit was not accepted.';
     } else if (message.includes('position is already taken') || message.includes('not the active challenge')) {
@@ -711,33 +766,47 @@ async function requestForecast(challengeIntent = null) {
   }
 }
 
-async function retryPayment() {
-  if (!currentPrediction?.payment || currentPrediction.payment.status !== 'pending' || paymentRetryInFlight) return;
+async function retryPaymentForPrediction(predictionId) {
+  const record = publicRecord.get(predictionId) || (currentPrediction?.id === predictionId ? currentPrediction : null);
+  if (!record?.payment || record.payment.status !== 'pending' || paymentRetryInFlight) return;
   paymentRetryInFlight = true;
-  renderPaymentRecovery(currentPrediction);
-  showStatus(`Recovering the recorded ${currentPrediction.outcome === 'void' ? 'refund' : 'payout'} without changing the final result.`, 'settling');
+  if (currentPrediction?.id === predictionId) {
+    renderPaymentRecovery(currentPrediction);
+    showStatus(`Recovering the recorded ${currentPrediction.outcome === 'void' ? 'refund' : 'payout'} without changing the final result.`, 'settling');
+  }
   try {
     const response = await fetch('/api/payments/retry', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({prediction_id: currentPrediction.id}),
+      body: JSON.stringify({prediction_id: predictionId}),
     });
     const body = await response.json();
+    if (body.prediction) {
+      publicRecord.set(body.prediction.id, body.prediction);
+      if (currentPrediction?.id === predictionId) renderPrediction(body.prediction);
+    }
     if (!response.ok) throw new Error(body.error || 'Payment recovery was not accepted');
-    if (body.prediction) renderPrediction(body.prediction);
-    await refreshPublicRecord();
-    if (currentPrediction?.payment?.status === 'paid') {
+    if (currentPrediction?.id === predictionId && currentPrediction?.payment?.status === 'paid') {
       showStatus(`Prediction #${currentPrediction.id} payment confirmed on chain.`, 'resolved');
-    } else {
+    } else if (currentPrediction?.id === predictionId) {
       showStatus(`Prediction #${currentPrediction.id} remains pending until its transfer receipt confirms.`, 'settling');
     }
+    renderPublicRecord();
   } catch {
-    showStatus('Payment recovery was not accepted. The original beneficiary and liability remain recorded.', 'unavailable');
+    if (currentPrediction?.id === predictionId) {
+      showStatus('Payment recovery was not accepted. The original beneficiary and liability remain recorded.', 'unavailable');
+    }
     await refreshPublicRecord();
   } finally {
     paymentRetryInFlight = false;
-    if (currentPrediction) renderPaymentRecovery(currentPrediction);
+    renderPublicRecord();
+    if (currentPrediction?.id === predictionId) renderPaymentRecovery(currentPrediction);
   }
+}
+
+async function retryPayment() {
+  if (!currentPrediction?.payment || currentPrediction.payment.status !== 'pending' || paymentRetryInFlight) return;
+  await retryPaymentForPrediction(currentPrediction.id);
 }
 
 $('ask-button').addEventListener('click', () => void beginChallengeForecast());
@@ -749,7 +818,8 @@ $('approve-challenge').addEventListener('click', () => void approveChallenge());
 $('cancel-challenge').addEventListener('click', cancelWalletApproval);
  $('retry-payment-button').addEventListener('click', () => void retryPayment());
  $('record-more').addEventListener('click', () => void loadOlderPredictions());
-void Promise.all([refreshLife(), refreshPrediction(), refreshPublicRecord(), loadConfiguration(), loadSandboxWallet()]);
+void Promise.all([refreshLife(), refreshPrediction(), refreshPublicRecord(), loadConfiguration(), loadSandboxWallet(), refreshChainTimestamp()]);
 globalThis.addEventListener('pagehide', () => { activeChallengeIntent = null; });
 setInterval(() => void refreshLife(), 3_000);
 setInterval(() => { void refreshPrediction(); void refreshPublicRecord(); }, 5_000);
+setInterval(() => void refreshChainTimestamp(), 1_000);
