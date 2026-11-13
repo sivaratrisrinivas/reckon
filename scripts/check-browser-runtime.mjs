@@ -9,7 +9,6 @@ if (process.platform !== 'linux') {
 let browser;
 try {
   browser = await chromium.launch({headless: true});
-  await browser.close();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   const missingLibraries = [...message.matchAll(/error while loading shared libraries:\s*([^:]+):/g)]
@@ -22,7 +21,7 @@ try {
     process.stderr.write(`${message.split('\n')[0]}\n`);
   }
   process.stderr.write('Install Chromium and its Linux dependencies with:\n');
-  process.stderr.write('  npx playwright install --with-deps chromium --only-shell\n');
+  process.stderr.write('  ./scripts/with-local-env.sh npx playwright install --with-deps chromium --only-shell\n');
   process.exitCode = 1;
 } finally {
   await browser?.close();

@@ -61,12 +61,11 @@ If an API key is exposed, revoke it with its provider and replace it in `.env`. 
 For the disposable account used in the recorded rehearsal, the following commands rebuild, deploy and reset the scratch contract. **Reset deletes the scratch contract's stored callback; never use these commands on an account holding another contract or real funds.** The NEAR CLI is version 0.31.1; the following installs it locally and runs its installer explicitly because npm may block package install scripts:
 
 ```sh
-npm install --prefix .local/near-cli near-cli-rs@0.31.1
-node .local/near-cli/node_modules/near-cli-rs/install.js
-export PATH="$PWD/.local/near-cli/node_modules/.bin:$PATH"
-npm run build:diagnostic
-near contract deploy reckon-srinivas-probe-2026.testnet use-file diagnostic-contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm without-init-call network-config testnet sign-with-legacy-keychain send
-near contract call-function as-transaction reckon-srinivas-probe-2026.testnet reset json-args '{}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as reckon-srinivas-probe-2026.testnet network-config testnet sign-with-legacy-keychain send
+./scripts/with-local-env.sh npm install --prefix .local/near-cli near-cli-rs@0.31.1
+./scripts/with-local-env.sh node .local/near-cli/node_modules/near-cli-rs/install.js
+./scripts/with-local-env.sh npm run build:diagnostic
+./scripts/with-local-env.sh near contract deploy reckon-srinivas-probe-2026.testnet use-file diagnostic-contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm without-init-call network-config testnet sign-with-legacy-keychain send
+./scripts/with-local-env.sh near contract call-function as-transaction reckon-srinivas-probe-2026.testnet reset json-args '{}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as reckon-srinivas-probe-2026.testnet network-config testnet sign-with-legacy-keychain send
 ```
 
 For another account, replace both occurrences of the account name and use only a disposable testnet account with its own signing key. The local lock prevents concurrent runs on one machine. The scratch contract also rejects another request while one is pending and permits replacement after 120 seconds. A delayed earlier callback is rejected after replacement, and callbacks after 120 seconds are rejected. The runner measures its separate timeout locally from submission, while the contract uses block time from request execution. Network delays and differences between those clocks can therefore make the runner report unavailable while the contract would still accept a callback, or leave the runner waiting for a callback the contract has rejected. Check the account before retrying; these diagnostic timeouts are not a production settlement deadline. Reset clears the scratch callback and pending request but preserves the request generation to reject older callbacks. Local evidence files are retained until you choose to remove them.
