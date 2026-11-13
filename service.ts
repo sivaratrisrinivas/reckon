@@ -81,26 +81,64 @@ const files: Record<string, [string, string]> = {
 };
 
 let settlementKeeperRunning = false;
+let paymentRecoveryInFlight = false;
+const paymentRetrySchedule = new Map<string, {nextAttemptAtMs: number; delayMs: number}>();
+const PAYMENT_RETRY_INITIAL_DELAY_MS = 5_000;
+const PAYMENT_RETRY_MAX_DELAY_MS = 120_000;
 async function runSettlementKeeper(): Promise<void> {
   if (settlementKeeperRunning) return;
   settlementKeeperRunning = true;
   try {
     const prediction = await contract.view<OnChainPrediction | null>('active_prediction', {});
-    if (!prediction) return;
-    const now = await readSandboxBlockTimestamp();
-    const deadline = BigInt(prediction.deadline_ns);
-    const cutoff = deadline + BigInt(SETTLEMENT_WINDOW_SECONDS) * 1_000_000_000n;
-    if (now >= cutoff) {
-      await contract.callRaw(contract, 'void_unsettled_prediction', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
-    } else if (now >= deadline && prediction.settlement_status === 'waiting') {
-      // This block-time read only schedules a transaction; the contract checks its execution time.
-      // If the request arrives too late, the next keeper tick can void after the cutoff.
-      await contract.callRaw(contract, 'request_settlement', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
+    if (prediction) {
+      const now = await readSandboxBlockTimestamp();
+      const deadline = BigInt(prediction.deadline_ns);
+      const cutoff = deadline + BigInt(SETTLEMENT_WINDOW_SECONDS) * 1_000_000_000n;
+      if (now >= cutoff) {
+        await contract.callRaw(contract, 'void_unsettled_prediction', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
+      } else if (now >= deadline && prediction.settlement_status === 'waiting') {
+        // This block-time read only schedules a transaction; the contract checks its execution time.
+        // If the request arrives too late, the next keeper tick can void after the cutoff.
+        await contract.callRaw(contract, 'request_settlement', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
+      }
     }
+    await retryPendingPayments();
   } catch {
     // Settlement state is authoritative on chain; the next keeper tick rechecks it.
   } finally {
     settlementKeeperRunning = false;
+  }
+}
+
+async function retryPendingPayments(): Promise<void> {
+  if (paymentRecoveryInFlight) return;
+  paymentRecoveryInFlight = true;
+  try {
+    const summary = await contract.view<{published: string}>('prediction_summary', {});
+    const published = BigInt(summary.published);
+    if (published === 0n) return;
+    const start = published > 50n ? published - 49n : 1n;
+    const predictions = await contract.view<OnChainPrediction[]>('list_predictions', {
+      start_id: start.toString(),
+      limit: '50',
+    });
+    for (const prediction of predictions) {
+      if (prediction.payment?.status === 'pending' && !prediction.payment.transfer_in_flight) {
+        const now = Date.now();
+        const schedule = paymentRetrySchedule.get(prediction.id);
+        if (schedule && now < schedule.nextAttemptAtMs) continue;
+        const delayMs = schedule?.delayMs ?? PAYMENT_RETRY_INITIAL_DELAY_MS;
+        paymentRetrySchedule.set(prediction.id, {
+          nextAttemptAtMs: now + delayMs,
+          delayMs: Math.min(delayMs * 2, PAYMENT_RETRY_MAX_DELAY_MS),
+        });
+        const receipt = await contract.callRaw(contract, 'retry_payment', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
+        const updated = await contract.view<OnChainPrediction | null>('get_prediction', {id: prediction.id});
+        if (receipt.succeeded && updated?.payment?.status === 'paid') paymentRetrySchedule.delete(prediction.id);
+      }
+    }
+  } finally {
+    paymentRecoveryInFlight = false;
   }
 }
 
@@ -194,6 +232,32 @@ const server = createServer(async (req, res) => {
       json(res, 200, await contract.view('prediction_summary', {}), {'Cache-Control': 'no-store'});
       return;
     }
+    if (req.method === 'POST' && url.pathname === '/api/payments/retry') {
+      const body = await readJsonBody(req);
+      const predictionId = body.prediction_id;
+      if (typeof predictionId !== 'string' || !validPredictionCursor(predictionId)) {
+        json(res, 400, {error: 'Invalid prediction id'});
+        return;
+      }
+      if (paymentRecoveryInFlight) {
+        json(res, 409, {error: 'Another payment recovery is already in progress'});
+        return;
+      }
+      paymentRetrySchedule.delete(predictionId);
+      paymentRecoveryInFlight = true;
+      try {
+        const receipt = await contract.callRaw(contract, 'retry_payment', {prediction_id: predictionId}, {gas: 250n * 10n ** 12n});
+        const updated = await contract.view<OnChainPrediction | null>('get_prediction', {id: predictionId});
+        if (!receipt.succeeded) {
+          json(res, 409, {error: 'Payment retry was not accepted', prediction: updated});
+          return;
+        }
+        json(res, 200, {prediction: updated}, {'Cache-Control': 'no-store'});
+      } finally {
+        paymentRecoveryInFlight = false;
+      }
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/forecast') {
       const result = await forecast.request();
       const statusCode = result.status === 'published' ? 201
@@ -230,6 +294,20 @@ const server = createServer(async (req, res) => {
       const allowed = ['below', 'above', 'equal', 'invalid', 'invalid_units', 'stale', 'wrong_asset', 'wrong_request_id', 'stalled'];
       if (!oracleFixture || typeof scenario !== 'string' || !allowed.includes(scenario)) { json(res, 400, {error: 'Unsupported settlement fixture'}); return; }
       await root.call(oracleFixture, 'set_scenario', {scenario});
+      res.writeHead(204).end();
+      return;
+    }
+    if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/payment-scenario') {
+      const body = await readJsonBody(req);
+      if (body.scenario === 'fail') {
+        const receipt = await challengerWallet.delete(root.accountId);
+        if (!receipt.succeeded) { json(res, 503, {error: 'Could not remove the fixture payout beneficiary'}); return; }
+      } else if (body.scenario === 'restore') {
+        await root.createAccount(challengerWallet.accountId, {initialBalance: 1n * 10n ** 24n, keyPair: challengerKey});
+      } else {
+        json(res, 400, {error: 'Unsupported payment fixture'});
+        return;
+      }
       res.writeHead(204).end();
       return;
     }

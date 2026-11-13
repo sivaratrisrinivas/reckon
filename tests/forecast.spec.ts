@@ -222,3 +222,24 @@ test('stalled oracle observation voids after the bounded window and refunds the 
   await expect(page.locator('.record-entry').last()).toContainText('VOID');
   await expect(page.locator('.record-entry').last()).toContainText('Payment receipt confirmed on chain');
 });
+
+test('failed payout stays visible and can be recovered without changing the final result', async ({page, request}) => {
+  const {prediction} = await publishAndChallenge(page, request);
+  expect((await request.post('/test/payment-scenario', {data: {scenario: 'fail'}})).status()).toBe(204);
+  expect((await request.post('/test/settlement-scenario', {data: {scenario: 'above'}})).status()).toBe(204);
+  expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
+
+  await expect(page.locator('#settlement-state')).toContainText('Payment pending', {timeout: 20_000});
+  await expect(page.locator('#payment-recovery')).toBeVisible();
+  await expect(page.locator('#payment-recovery-state')).toContainText('remains owed');
+  await expect(page.locator('#retry-payment-button')).toBeEnabled();
+
+  expect((await request.post('/test/payment-scenario', {data: {scenario: 'restore'}})).status()).toBe(204);
+  await page.getByRole('button', {name: 'Retry payment'}).click();
+  await expect(page.locator('#settlement-state')).toContainText('Payment confirmed on chain', {timeout: 20_000});
+  const recovered = (await (await request.get(`/api/predictions?start_id=${prediction.id}&limit=1`)).json())[0];
+  expect(recovered.outcome).toBe('yes');
+  expect(recovered.payment.status).toBe('paid');
+  expect(recovered.payment.beneficiary_account_id).toBe((await (await request.get('/api/wallet')).json()).account_id);
+  await expect(page.locator('#payment-recovery')).toBeHidden();
+});

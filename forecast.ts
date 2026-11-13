@@ -63,7 +63,14 @@ export type OnChainPrediction = {
   settlement_price: {multiplier: string; decimals: number; response_timestamp_ns: string; provider_recency_seconds: number} | null;
   outcome: 'yes' | 'no' | 'void' | null;
   settled_at_ns: string | null;
-  payment: {beneficiary_account_id: string; amount: string; status: 'pending' | 'paid'; transfer_in_flight: boolean} | null;
+  payment: {
+    payment_id: string;
+    attempt_id: string;
+    beneficiary_account_id: string;
+    amount: string;
+    status: 'pending' | 'paid';
+    transfer_in_flight: boolean;
+  } | null;
 };
 
 export type PredictionQuote = {

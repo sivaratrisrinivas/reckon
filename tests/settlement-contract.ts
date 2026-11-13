@@ -223,6 +223,85 @@ try {
   const finalSummary = await contract.view<{published: string; valid_outcomes: string; correct_outcomes: string}>('prediction_summary', {});
   assert.deepEqual(finalSummary, {published: '9', valid_outcomes: '3', correct_outcomes: '2'}, 'malformed, wrong-asset, stale, and stale-identity callbacks cannot enter accuracy');
 
+  const recoveryKey = KeyPairEd25519.fromRandom();
+  const recoveryContract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
+    initialBalance: 120n * NEAR,
+    method: 'new',
+    args: {
+      initial_bankroll: (100n * NEAR).toString(),
+      operational_reserve: (20n * NEAR).toString(),
+      idle_life_ns: '604800000000000',
+      prediction_public_key: recoveryKey.getPublicKey().toString(),
+      oracle_account_id: oracle.accountId,
+    },
+  });
+  await recoveryContract.batch(recoveryContract).addKey(
+    recoveryKey.getPublicKey(),
+    functionCallAccessKey(recoveryContract.accountId, ['publish_prediction'], 5n * NEAR),
+  ).transact();
+  const recoveryPrediction = await recoveryContract.call<{id: string; agent_stake: string; challenger_stake: string}>(
+    recoveryContract,
+    'publish_prediction',
+    {
+      reference_multiplier: '340823333',
+      reference_decimals: 8,
+      decision: 'no',
+      confidence_ppm: 850_000,
+      evidence_hash: '000000000000000000000000000000000000000000000000000000000000000b',
+      evidence_url: 'https://evidence.reckon.invalid/payment-recovery.json',
+    },
+    {signWithKey: recoveryKey},
+  );
+  const recoveryChallenger = await root.createSubAccount('recovery-challenger', {initialBalance: 10n * NEAR});
+  await recoveryChallenger.call(recoveryContract, 'challenge_prediction', {prediction_id: recoveryPrediction.id}, {
+    attachedDeposit: BigInt(recoveryPrediction.challenger_stake),
+  });
+  const failedBeneficiaryId = recoveryChallenger.accountId;
+  const deleteBeneficiary = await recoveryChallenger.delete(root.accountId);
+  assert.equal(deleteBeneficiary.succeeded, true, 'the failure fixture removes the payout account before settlement');
+  await worker.provider.fastForward(300);
+  await setOracleScenario('above');
+  const failedSettlement = await recoveryContract.callRaw(
+    recoveryContract,
+    'request_settlement',
+    {prediction_id: recoveryPrediction.id},
+    {gas: 250n * 10n ** 12n},
+  );
+  assert(failedSettlement.receipts_outcomes.length > 0, 'a transfer failure still completes the settlement callback path');
+  const failedPayment = await recoveryContract.view<{
+    outcome: string;
+    payment: {payment_id: string; attempt_id: string; beneficiary_account_id: string; amount: string; status: string; transfer_in_flight: boolean};
+  }>('get_prediction', {id: recoveryPrediction.id});
+  assert.equal(failedPayment.outcome, 'yes');
+  assert.equal(failedPayment.payment.beneficiary_account_id, failedBeneficiaryId, 'the failed liability keeps its original beneficiary');
+  assert.equal(failedPayment.payment.status, 'pending');
+  assert.equal(failedPayment.payment.transfer_in_flight, false);
+  const failedLife = await recoveryContract.view<{pending_payment_liabilities: string; challenger_custody: string}>('life');
+  assert.equal(failedLife.pending_payment_liabilities, (BigInt(recoveryPrediction.challenger_stake) + BigInt(recoveryPrediction.agent_stake)).toString(), 'pending payout remains in conservation accounting');
+  const firstPaymentAttempt = failedPayment.payment.attempt_id;
+  const retryReceipt = await root.callRaw(recoveryContract, 'retry_payment', {prediction_id: recoveryPrediction.id}, {gas: 250n * 10n ** 12n});
+  assert(retryReceipt.receipts_outcomes.length > 0, 'retrying while the beneficiary is absent remains pending rather than changing the obligation');
+  const retriedPayment = await recoveryContract.view<typeof failedPayment>('get_prediction', {id: recoveryPrediction.id});
+  assert.notEqual(retriedPayment.payment.attempt_id, firstPaymentAttempt, 'each retry receives a unique attempt identity');
+  assert.equal(retriedPayment.payment.status, 'pending');
+  const staleCallback = await recoveryContract.callRaw(recoveryContract, 'on_payment_complete', {
+    prediction_id: recoveryPrediction.id,
+    callback_payment_id: failedPayment.payment.payment_id,
+    callback_attempt_id: firstPaymentAttempt,
+  });
+  assert.equal(staleCallback.succeeded, false, 'a stale callback cannot complete a later payment attempt');
+  const restoredBeneficiary = await root.createAccount(failedBeneficiaryId, {initialBalance: NEAR, keyPair: recoveryKey});
+  assert.equal(await restoredBeneficiary.exists(), true);
+  const finalRecovery = await root.callRaw(recoveryContract, 'retry_payment', {prediction_id: recoveryPrediction.id}, {gas: 250n * 10n ** 12n});
+  assert.equal(finalRecovery.succeeded, true, finalRecovery.summary());
+  const paidRecovery = await recoveryContract.view<typeof failedPayment>('get_prediction', {id: recoveryPrediction.id});
+  assert.equal(paidRecovery.outcome, 'yes', 'recovery does not change the final outcome');
+  assert.equal(paidRecovery.payment.status, 'paid');
+  assert.equal(paidRecovery.payment.beneficiary_account_id, failedBeneficiaryId);
+  const paidLife = await recoveryContract.view<{pending_payment_liabilities: string; challenger_custody: string}>('life');
+  assert.equal(paidLife.pending_payment_liabilities, '0', 'confirmed payment releases the recorded liability');
+  assert.equal(paidLife.challenger_custody, '0');
+
   const deadKey = KeyPairEd25519.fromRandom();
   const deadContract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
     initialBalance: 120n * NEAR,

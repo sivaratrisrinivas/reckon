@@ -30,7 +30,7 @@ const MAX_ORACLE_RECENCY_SECONDS: u64 = 300;
 const MAX_ORACLE_RESPONSE_AGE_NS: u64 = 300 * 1_000_000_000;
 const ORACLE_REQUEST_DEPOSIT: u128 = 20_000_000_000_000_000_000_000;
 const ORACLE_REQUEST_GAS: Gas = Gas::from_tgas(200);
-const PAYMENT_CALLBACK_GAS: Gas = Gas::from_tgas(10);
+const PAYMENT_CALLBACK_GAS: Gas = Gas::from_tgas(30);
 const ORACLE_ASSET_ID: &str = "wrap.near";
 const MAX_PREDICTION_PAGE_SIZE: u64 = 50;
 
@@ -43,6 +43,7 @@ pub struct Reckon {
     challenger_custody: u128,
     retired: u128,
     operational_reserve: u128,
+    pending_payment_liabilities: u128,
     idle_life_ns: u64,
     last_accrual_ns: u64,
     fractional: u128,
@@ -52,6 +53,7 @@ pub struct Reckon {
     next_prediction_id: u64,
     active_prediction_id: Option<u64>,
     next_oracle_request_id: u64,
+    next_payment_attempt_id: u64,
     valid_outcomes: u64,
     correct_outcomes: u64,
     predictions: LookupMap<u64, Prediction>,
@@ -65,6 +67,7 @@ pub struct Life {
     challenger_custody: U128,
     retired_bankroll: U128,
     operational_reserve: U128,
+    pending_payment_liabilities: U128,
     remaining_life_ns: U64,
     idle_life_ns: U64,
     dead: bool,
@@ -110,6 +113,8 @@ pub struct SettlementPrice {
 #[near(serializers = [borsh, json])]
 #[derive(Clone)]
 pub struct PaymentLiability {
+    payment_id: String,
+    attempt_id: U64,
     beneficiary_account_id: String,
     amount: U128,
     status: String,
@@ -187,6 +192,7 @@ impl Reckon {
             challenger_custody: 0,
             retired: 0,
             operational_reserve: operational_reserve.0,
+            pending_payment_liabilities: 0,
             idle_life_ns: idle_life_ns.0,
             last_accrual_ns: env::block_timestamp(),
             fractional: 0,
@@ -196,6 +202,7 @@ impl Reckon {
             next_prediction_id: 1,
             active_prediction_id: None,
             next_oracle_request_id: 1,
+            next_payment_attempt_id: 1,
             valid_outcomes: 0,
             correct_outcomes: 0,
             predictions: LookupMap::new(StorageKey::Predictions),
@@ -220,6 +227,7 @@ impl Reckon {
             challenger_custody: U128(self.challenger_custody),
             retired_bankroll: U128(retired),
             operational_reserve: U128(self.operational_reserve),
+            pending_payment_liabilities: U128(self.pending_payment_liabilities),
             remaining_life_ns: U64(remaining),
             idle_life_ns: U64(self.idle_life_ns),
             dead,
@@ -513,11 +521,11 @@ impl Reckon {
                 .committed_bankroll
                 .checked_sub(prediction.agent_stake.0)
                 .expect("Committed bankroll underflow");
-            self.challenger_custody = self
-                .challenger_custody
-                .checked_sub(prediction.challenger_stake.0)
-                .expect("Challenger custody underflow");
             if outcome == prediction.decision {
+                self.challenger_custody = self
+                    .challenger_custody
+                    .checked_sub(prediction.challenger_stake.0)
+                    .expect("Challenger custody underflow");
                 if self.dead {
                     self.retired = self
                         .retired
@@ -532,18 +540,27 @@ impl Reckon {
                         .expect("Spendable bankroll overflow");
                 }
             } else {
+                self.challenger_custody = self
+                    .challenger_custody
+                    .checked_sub(prediction.challenger_stake.0)
+                    .expect("Challenger custody underflow");
+                let amount = prediction
+                    .agent_stake
+                    .0
+                    .checked_add(prediction.challenger_stake.0)
+                    .expect("Payout amount overflow");
+                self.pending_payment_liabilities = self
+                    .pending_payment_liabilities
+                    .checked_add(amount)
+                    .expect("Pending payment liability overflow");
                 prediction.payment = Some(PaymentLiability {
+                    payment_id: payment_id(prediction_id),
+                    attempt_id: U64(0),
                     beneficiary_account_id: prediction
                         .challenger_account_id
                         .clone()
                         .expect("Missing challenger account"),
-                    amount: U128(
-                        prediction
-                            .agent_stake
-                            .0
-                            .checked_add(prediction.challenger_stake.0)
-                            .expect("Payout amount overflow"),
-                    ),
+                    amount: U128(amount),
                     status: "pending".to_string(),
                     transfer_in_flight: false,
                 });
@@ -591,11 +608,17 @@ impl Reckon {
                     .checked_add(prediction.agent_stake.0)
                     .expect("Spendable bankroll overflow");
             }
+            self.pending_payment_liabilities = self
+                .pending_payment_liabilities
+                .checked_add(prediction.challenger_stake.0)
+                .expect("Pending payment liability overflow");
             self.challenger_custody = self
                 .challenger_custody
                 .checked_sub(prediction.challenger_stake.0)
                 .expect("Challenger custody underflow");
             prediction.payment = Some(PaymentLiability {
+                payment_id: payment_id(prediction_id.0),
+                attempt_id: U64(0),
                 beneficiary_account_id: prediction
                     .challenger_account_id
                     .clone()
@@ -618,8 +641,41 @@ impl Reckon {
         }
     }
 
+    /// Retry a pending payout to its already-recorded beneficiary. This never creates a new
+    /// wager and cannot redirect an obligation; only the existing payment identity is used.
+    pub fn retry_payment(&mut self, prediction_id: U64) -> PromiseOrValue<bool> {
+        let prediction = self
+            .predictions
+            .get(&prediction_id.0)
+            .cloned()
+            .expect("Prediction does not exist");
+        let payment = prediction
+            .payment
+            .as_ref()
+            .expect("Prediction has no payment liability");
+        require!(
+            prediction.outcome.is_some(),
+            "Prediction has no final outcome"
+        );
+        require!(payment.status == "pending", "Payment is already confirmed");
+        require!(
+            !payment.transfer_in_flight,
+            "A payment attempt is already pending"
+        );
+        if let Some(transfer) = self.start_payment_transfer(prediction_id.0) {
+            PromiseOrValue::Promise(transfer)
+        } else {
+            PromiseOrValue::Value(true)
+        }
+    }
+
     #[private]
-    pub fn on_payment_complete(&mut self, prediction_id: U64) -> bool {
+    pub fn on_payment_complete(
+        &mut self,
+        prediction_id: U64,
+        callback_payment_id: String,
+        callback_attempt_id: U64,
+    ) -> bool {
         let mut prediction = self
             .predictions
             .get(&prediction_id.0)
@@ -629,13 +685,20 @@ impl Reckon {
             .payment
             .expect("Prediction has no payment liability");
         require!(
-            payment.status == "pending" && payment.transfer_in_flight,
+            payment.status == "pending"
+                && payment.transfer_in_flight
+                && payment.payment_id == callback_payment_id
+                && payment.attempt_id.0 == callback_attempt_id.0,
             "Payment receipt does not match a pending transfer"
         );
         let succeeded = env::promise_result_checked(0, 1_024).is_ok();
         payment.transfer_in_flight = false;
         if succeeded {
             payment.status = "paid".to_string();
+            self.pending_payment_liabilities = self
+                .pending_payment_liabilities
+                .checked_sub(payment.amount.0)
+                .expect("Pending payment liability underflow");
         }
         prediction.payment = Some(payment);
         self.predictions.insert(prediction_id.0, prediction);
@@ -680,17 +743,25 @@ impl Reckon {
         if payment.status != "pending" || payment.transfer_in_flight {
             return None;
         }
+        let attempt_id = self.next_payment_attempt_id;
+        self.next_payment_attempt_id = attempt_id
+            .checked_add(1)
+            .expect("Payment attempt id overflow");
+        payment.attempt_id = U64(attempt_id);
         payment.transfer_in_flight = true;
         let beneficiary: AccountId = payment
             .beneficiary_account_id
             .parse()
             .expect("Invalid payment beneficiary");
         let amount = payment.amount.0;
+        let payment_id = payment.payment_id.clone();
         prediction.payment = Some(payment);
         self.predictions.insert(prediction_id, prediction);
 
         let callback_args = serde_json::to_vec(&serde_json::json!({
-            "prediction_id": prediction_id.to_string()
+            "prediction_id": prediction_id.to_string(),
+            "callback_payment_id": payment_id,
+            "callback_attempt_id": attempt_id.to_string(),
         }))
         .expect("Serialize payment callback");
         Some(
@@ -775,6 +846,10 @@ impl Reckon {
             false,
         )
     }
+}
+
+fn payment_id(prediction_id: u64) -> String {
+    format!("reckon:payment:{}", prediction_id)
 }
 
 fn validate_oracle_data(data: &Value, now: u64, requested_at: u64) -> Option<SettlementPrice> {
