@@ -42,7 +42,7 @@ export function validateModel(content: unknown): Result<ModelDecision> {
   if (typeof content !== 'string') return { ok: false, reason: 'Missing structured response' };
   let value: unknown;
   try { value = JSON.parse(content); } catch { return { ok: false, reason: 'Invalid JSON' }; }
-  if (!object(value) || Object.keys(value).sort().join(',') !== 'confidence,decision,justification' || typeof value.justification !== 'string' || !value.justification.trim()) return { ok: false, reason: 'Invalid response shape' };
+  if (!object(value) || Object.keys(value).sort().join(',') !== 'confidence,decision,justification' || typeof value.justification !== 'string' || !value.justification.trim() || value.justification.length > 500) return { ok: false, reason: 'Invalid response shape or justification length' };
   if (value.decision === 'abstain' && value.confidence === null) return { ok: true, value: { decision: 'abstain', confidence: null, justification: value.justification } };
   if ((value.decision === 'yes' || value.decision === 'no') && typeof value.confidence === 'number' && Number.isFinite(value.confidence) && value.confidence >= 0 && value.confidence <= 1) return { ok: true, value: { decision: value.decision, confidence: value.confidence, justification: value.justification } };
   return { ok: false, reason: 'Invalid decision or confidence' };

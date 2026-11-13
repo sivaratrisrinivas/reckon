@@ -21,6 +21,7 @@
     "test:diagnostic-contract": "npm run build:diagnostic && tsx tests/diagnostic-contract.ts"
   },
   "dependencies": {
+    "near-api-js": "5.1.1",
     "near-workspaces": "5.0.0",
     "tsx": "4.21.0"
   },

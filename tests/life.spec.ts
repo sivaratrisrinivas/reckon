@@ -15,6 +15,6 @@ test('sandbox time reduces life and retires bankroll in the browser', async ({ p
   await expect.poll(async () => page.locator('#spendable').textContent()).not.toBe(displayedSpendable);
   await expect.poll(async () => page.locator('#remaining').textContent()).not.toBe(displayedLife);
   await expect.poll(async () => page.locator('#retired').textContent()).not.toBe('0.0000 NEAR');
-  await expect(page.locator('#reserve')).toHaveText('20.0000 NEAR');
-  await expect(page.getByText('Forecasting and public staking are not available in this local build.')).toBeVisible();
+  await expect(page.locator('#reserve')).toHaveText('20.0 NEAR');
+  await expect(page.getByRole('heading', {name: 'Ask Reckon'})).toBeVisible();
 });

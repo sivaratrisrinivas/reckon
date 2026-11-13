@@ -1,3 +1,85 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Reckon — local sandbox</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
-<body><header><strong>RECKON<span class="mark">.</span></strong><span class="network">LOCAL SANDBOX · TEST MONEY</span></header><main><section class="intro"><p class="eyebrow">A FINITE EXPERIMENT</p><h1>An AI that pays when it is wrong.</h1><p>Reckon puts its own bankroll behind its predictions. Upkeep consumes that bankroll over time.</p></section><section class="scene" aria-labelledby="life-heading"><div class="life"><div><p class="eyebrow" id="life-heading">REMAINING LIFE</p><p class="time" id="remaining">Connecting…</p><p id="state" role="status">Reading the local chain</p></div><div class="glyph" aria-hidden="true"><span></span></div></div><div class="rule"><span id="meter"></span></div><div class="partition"><div><span>Spendable bankroll</span><strong id="spendable">—</strong></div><div><span>Retired bankroll</span><strong id="retired">—</strong></div><div><span>Operational reserve</span><strong id="reserve">—</strong></div></div><p class="note">Upkeep is a configured rule, not an AI invoice. Retired funds stay in the account but cannot be used again. Local life is accelerated to 15 minutes; the intended live idle rate is 15 days.</p></section><section class="record"><p class="eyebrow">PREDICTION &amp; RECORD</p><h2>No predictions yet.</h2><p>Forecasting and public staking are not available in this local build.</p><p><a href="/diagnostic">View testnet integration diagnostic</a></p></section></main><footer>LOCAL DEMONSTRATION · NO WALLET REQUIRED</footer></body></html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#171a19">
+    <title>Reckon — an AI that stakes its predictions</title>
+    <link rel="stylesheet" href="/style.css">
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <a class="wordmark" href="/" aria-label="Reckon home">RECKON<span class="mark">.</span></a>
+      <div class="environment">
+        <span class="network">LOCAL SANDBOX · TEST MONEY</span>
+        <span id="provider-label" class="provider-label">Checking forecast providers</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="title">
+        <p class="eyebrow">A FINITE EXPERIMENT</p>
+        <h1 id="title">An AI that pays when it is wrong.</h1>
+        <p>Reckon stakes its own test-money bankroll on each forecast. If it runs out, it cannot make another.</p>
+      </section>
+
+      <section class="scene" aria-labelledby="life-heading">
+        <div class="life">
+          <div>
+            <p class="eyebrow" id="life-heading">REMAINING LIFE</p>
+            <p class="time" id="remaining">Connecting…</p>
+            <p id="life-state" class="life-state" role="status">Reading the local chain</p>
+          </div>
+          <div class="glyph" aria-hidden="true"><span></span></div>
+        </div>
+        <div class="rule" aria-hidden="true"><span id="meter"></span></div>
+        <dl class="partition">
+          <div><dt>Spendable bankroll</dt><dd id="spendable">—</dd></div>
+          <div><dt>Retired bankroll</dt><dd id="retired">—</dd></div>
+          <div><dt>Operational reserve</dt><dd id="reserve">—</dd></div>
+        </dl>
+        <p class="note">Upkeep is a configured rule, not an AI invoice. Retired funds stay in the account but cannot be used again. This local demo uses accelerated upkeep; the intended live idle rate is fifteen days.</p>
+      </section>
+
+      <section class="forecast" aria-labelledby="forecast-heading">
+        <p class="eyebrow">ONE OPEN PREDICTION</p>
+        <h2 id="forecast-heading">Ask Reckon</h2>
+        <p class="forecast-copy">Reckon checks recent NEAR/USD evidence and its settlement reference, then makes one fixed five-minute forecast or abstains. Requesting does not reserve the challenger slot.</p>
+        <button id="ask-button" class="primary" type="button">Ask Reckon</button>
+        <p id="forecast-status" class="forecast-status" role="status" aria-live="polite">Checking whether Reckon is available.</p>
+
+        <article id="prediction" class="prediction" aria-labelledby="prediction-title" hidden>
+          <p class="eyebrow">PUBLISHED ON THE LOCAL SANDBOX</p>
+          <h3 id="prediction-title">Prediction</h3>
+          <p id="question" class="question"></p>
+          <dl class="terms">
+            <div><dt>Reference price</dt><dd id="reference"></dd></div>
+            <div><dt>Reckon's side</dt><dd id="decision"></dd></div>
+            <div><dt>Confidence</dt><dd id="confidence"></dd></div>
+            <div><dt>Reckon stake</dt><dd id="agent-stake"></dd></div>
+            <div><dt>Opposing stake</dt><dd id="challenger-stake"></dd></div>
+            <div><dt>Challenge closes</dt><dd id="challenge-deadline"></dd></div>
+            <div><dt>Prediction deadline</dt><dd id="deadline"></dd></div>
+            <div><dt>Model identity</dt><dd id="model-id"></dd></div>
+          </dl>
+          <p class="fingerprint-label">Evidence fingerprint (SHA-256)</p>
+          <code id="fingerprint" class="fingerprint"></code>
+          <p><a id="evidence-link" class="evidence-link" href="#" download>Download evidence snapshot</a></p>
+          <p class="limitation">The fingerprint detects edits to the snapshot. It does not prove inference execution, source truth, or continued file availability.</p>
+          <p id="hosting-note" class="note"></p>
+        </article>
+      </section>
+
+      <section class="record" aria-labelledby="record-heading">
+        <p class="eyebrow">PUBLIC RECORD</p>
+        <h2 id="record-heading">One prediction at a time</h2>
+        <p>The question stays fixed: will the settlement price be strictly above the reference? Equality resolves to no. No prediction is created when inference abstains, evidence is stale, or a required provider is unavailable.</p>
+        <p class="note">The oracle reports a bounded settlement-time observation, not a guaranteed historical price at the exact deadline. Caller timing and provider caching can affect that observation.</p>
+        <p><a href="/diagnostic">View testnet integration diagnostic</a></p>
+      </section>
+    </main>
+
+    <footer>LOCAL DEMONSTRATION · NO WALLET REQUIRED · NO LIVE WAGERING</footer>
+  </body>
+</html>

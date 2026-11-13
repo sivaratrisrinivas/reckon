@@ -1,6 +1,6 @@
 # Reckon
 
-Reckon is an experiment in an AI staking its own bankroll on its predictions. This initial local slice shows the agent's remaining life and funds on a real NEAR sandbox. It does not yet make forecasts or accept stakes. All funds in this demonstration are sandbox test money; this is not a testnet or mainnet deployment.
+Reckon is an experiment in an AI staking its own bankroll on its predictions. The local browser can request one forecast, inspect its fixed terms, and download the evidence snapshot committed by fingerprint to the real NEAR sandbox contract. The current slice does not accept stakes or settle predictions. All funds in this demonstration are sandbox test money; this is not a testnet or mainnet deployment.
 
 ## Run on Linux x86-64
 
@@ -15,7 +15,23 @@ npm run build:contract
 npm start
 ```
 
-Open http://127.0.0.1:4389. The service starts a new sandbox and initializes a fresh agent each time it runs. Watch spendable bankroll decrease and retired bankroll increase as blocks advance; no wallet or key is needed. Stop with Ctrl-C. Set `PORT` to change the browser port. This is a local development tool: the sandbox dependency binds its RPC and network ports to all interfaces, so run it only on a trusted machine and network.
+Open http://127.0.0.1:4389. The service starts a new sandbox and initializes a fresh agent each time it runs. Watch spendable bankroll decrease and retired bankroll increase as blocks advance, or press **Ask Reckon** to request one forecast. No wallet is needed. Stop with Ctrl-C. Set `PORT` to change the browser port. This is a local development tool: the sandbox dependency binds its RPC and network ports to all interfaces, so run it only on a trusted machine and network.
+
+## Forecasts and evidence
+
+`RECKON_PROVIDER_MODE` defaults to `fixture`. In this mode, recent simulated NEAR/USD candles, a simulated oracle reference, and a deterministic model response are labelled in the browser and evidence file. They exercise the same compiled contract and restricted prediction key as a real request; they do not demonstrate live forecast skill. This local-only fixture is never selected as a fallback in live provider mode.
+
+Set `RECKON_PROVIDER_MODE=live` to use completed public Coinbase NEAR-USD candles, the cached `wrap.near` reference from `price-oracle.testnet`, and the configured NEAR AI model. Live mode requires `NEAR_AI_API_KEY` and `NEAR_AI_MODEL` in the private `.env`; without both, the service exits instead of substituting a fixture. The oracle reference may be null or stale. In that case, or if market evidence or inference is unavailable, no prediction is published. This mode still publishes only to the local sandbox contract. It does not refresh the oracle for a new on-chain observation, deploy to testnet, or accept a wager.
+
+The model sees the fixed binary question, the reference price, recent completed candles, and the bounded settlement rules. It returns `yes`, `no`, or `abstain`, a probability for its selected side, and a short justification. Invalid output, abstention, unsupported confidence, or stale prerequisites create no prediction. The current input checks require completed candles to be at most 180 seconds old and the oracle response plus its reported recency allowance to fit within 600 seconds. These are implementation limits, not measured production freshness guarantees. The contract fixes deadlines at publication: a thirty-second challenge window and a five-minute prediction horizon. Equality is no. The one unresolved prediction is enforced on-chain.
+
+The contract stores confidence as parts per million on a 1,000,000 scale. The current quote supports confidence from 100,000 to 900,000 (10% to 90%) and rounds to the nearest one millionth. For selected-side confidence `q`, the fair challenger stake is `agent stake × (1 − q) / q`, rounded to the nearest yoctoNEAR, ties upward. The agent stake uses at most 2% of spendable bankroll projected after the thirty-second challenge window. Monetary amounts are checked `u128` yoctoNEAR integers; the agent stake minimum is 0.01 NEAR and the challenger stake minimum is 0.001 NEAR. The reference multiplier must be positive, fit `u128`, and use between 0 and 24 decimals. These are initial implementation settings for the local slice; they require measured rehearsal and confirmation before any final testnet configuration.
+
+The local contract is initialized with a generated prediction public key and a finite 5 NEAR function-call allowance restricted to `publish_prediction`. The contract checks that exact key when it publishes. This allowance is only a local development setting; production lifetime and reserves have not been measured.
+
+Each published snapshot is canonical JSON written once under `.local/evidence/<sha256>.json`, before the contract stores its fingerprint. The local service serves it without a wallet and checks the hash before download. This filesystem storage survives a service restart on the same machine, but it is not durable public hosting. The fingerprint detects later byte changes; it does not prove inference execution, source truth, or continued availability. The snapshot records provider identities and times, model identity and structured response, prompt version, and the short justification.
+
+In live provider mode, a filesystem cooldown limits requests to one every thirty seconds and the persisted model-call budget allows at most twelve attempts per UTC day on that machine. These controls are bounded local safeguards, not a shared production rate limiter.
 
 The local agent begins with 100 NEAR spendable and a separate 20 NEAR operational reserve. Its initial idle life is accelerated to 15 minutes. The contract’s `new_live` initializer fixes the live idle rate at fifteen days; it has not been deployed to testnet. Upkeep is a configured rule, not an invoice, and retired funds remain on the account but cannot be used for new stakes. The reserve covers operational and storage needs; it is not agent bankroll. Direct transfers do not increase usable bankroll. A life view projects costs through the latest chain block, so it advances with sandbox blocks, not a separate browser clock.
 
@@ -66,6 +82,6 @@ If sandbox tests stall or fail, first check the configured sandbox variables and
 
 ## Dependencies and assistance
 
-The contract uses NEAR SDK and `uint`; the local service and verification use NEAR Workspaces, TypeScript, tsx and Playwright. Exact versions are recorded in the lockfiles. The sandbox tooling overrides its `tar` dependency to a patched version; run `npm run audit:high` to check for high and critical advisories, or `npm audit` to see all severities. The latest audit still reports low and moderate findings. This tooling is for local development only, not a hosted service. npm 12 blocks dependency install scripts by default; the explicit sandbox installer above avoids relying on the older binary that dependency would otherwise install.
+The contract uses NEAR SDK and `uint`; the local service and verification use NEAR Workspaces, `near-api-js`, TypeScript, tsx and Playwright. Exact versions are recorded in the lockfiles. The sandbox tooling overrides its `tar` dependency to a patched version; run `npm run audit:high` to check for high and critical advisories, or `npm audit` to see all severities. The latest audit still reports low and moderate findings. This tooling is for local development only, not a hosted service. npm 12 blocks dependency install scripts by default; the explicit sandbox installer above avoids relying on the older binary that dependency would otherwise install.
 
 This initial implementation was developed with AI assistance. It has not been deployed or audited for real-money use.
