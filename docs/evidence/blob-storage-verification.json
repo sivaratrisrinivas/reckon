@@ -1,0 +1,14 @@
+{
+  "status": "verified",
+  "verified_at": "2026-11-13T02:20:44.201Z",
+  "public_url": "https://hl93vivkapaqgdrp.public.blob.vercel-storage.com/evidence/75d1c16bec6ba49e6debf13330fcc40b00cdbcc7487be41f1c648cfc77beadc9.json",
+  "sha256": "75d1c16bec6ba49e6debf13330fcc40b00cdbcc7487be41f1c648cfc77beadc9",
+  "bytes": 197,
+  "public_hash_matches": true,
+  "automatic_expiry": false,
+  "overwrite_rejected": true,
+  "model_invoked": false,
+  "prediction_published": false,
+  "purpose": "Public storage integration check only; not a forecast or model inference.",
+  "sdk": "@vercel/blob 2.9.0"
+}
