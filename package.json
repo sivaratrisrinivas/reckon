@@ -14,7 +14,7 @@
     "test:contract": "tsx tests/contract.ts && tsx tests/settlement-contract.ts",
     "test:settlement": "tsx tests/settlement-contract.ts",
     "prestart": "sh scripts/check-local.sh && npm run build:browser",
-    "pretest": "sh scripts/check-local.sh",
+    "pretest": "sh scripts/check-local.sh && node scripts/check-browser-runtime.mjs",
     "pretest:contract": "sh scripts/check-local.sh",
     "pretest:settlement": "sh scripts/check-local.sh",
     "build:contract": "cargo build --manifest-path contract/Cargo.toml --release --target wasm32-unknown-unknown --locked && CARGO_TARGET_DIR=contract/target cargo build --manifest-path oracle-fixture-contract/Cargo.toml --release --target wasm32-unknown-unknown --locked",

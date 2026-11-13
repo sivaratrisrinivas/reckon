@@ -10,14 +10,13 @@ The sandbox installer tries both the legacy and regional official S3 endpoints. 
 
 ```sh
 ./scripts/install-node.sh
-export PATH="$PWD/.local/node-v26.13.0-linux-x64/bin:$PATH"
-npm ci --ignore-scripts
+./scripts/with-local-env.sh npm ci --ignore-scripts
 ./scripts/install-sandbox.sh
-export NEAR_SANDBOX_BIN_PATH=1
-export NEAR_SANDBOX_BINARY_PATH="$PWD/.local/sandbox"
-npm run build:contract
-npm start
+./scripts/with-local-env.sh npm run build:contract
+./scripts/with-local-env.sh npm start
 ```
+
+When the pinned Node or Rust toolchains are installed under `.local`, run project commands through `./scripts/with-local-env.sh`; it selects those tools when present and sets the local sandbox defaults.
 
 Open http://127.0.0.1:4389. The service starts a new sandbox, initializes a fresh agent, and creates a funded challenger account each time it runs. The browser receives that disposable account's key over the loopback service, keeps it in memory, and signs a real NEAR transaction through the sandbox RPC proxy after explicit approval. The account and key disappear with the sandbox. Do not use this wallet pattern with real accounts, expose the service, or add funds you cannot afford to lose. Watch spendable and committed bankroll, challenger custody, and retired bankroll as blocks advance; press **Ask Reckon** to request a forecast and **Challenge Prediction** to open the wallet approval. Stop with Ctrl-C. Set `PORT` to change the browser port. This is a local development tool: the sandbox dependency binds its RPC and network ports to all interfaces, so run it only on a trusted machine and network.
 
@@ -79,19 +78,19 @@ To rebuild the scratch contract and test unauthorized calls, matching callbacks,
 After the build above, install Chromium and its Linux system dependencies, then run the checks. The `--with-deps` step may require administrator privileges:
 
 ```sh
-npx playwright install --with-deps chromium --only-shell
-rustup component add rustfmt
-npm run lint
-npm run typecheck
-npm run test:settlement
-npm test
-npm run test:diagnostic-contract
-npm run audit:high
+./scripts/with-local-env.sh npx playwright install --with-deps chromium --only-shell
+./scripts/with-local-env.sh rustup component add rustfmt
+./scripts/with-local-env.sh npm run lint
+./scripts/with-local-env.sh npm run typecheck
+./scripts/with-local-env.sh npm run test:settlement
+./scripts/with-local-env.sh npm test
+./scripts/with-local-env.sh npm run test:diagnostic-contract
+./scripts/with-local-env.sh npm run audit:high
 ```
 
 `npm run build:contract` builds both the Reckon contract and the deterministic sandbox oracle fixture. The settlement test runs challenged and unchallenged rounds, checks equality, validates oracle callbacks, observes successful payout and refund receipts, and asserts that stalled or invalid observations can be voided. The browser tests also advance sandbox time to show automatic settlement, balance changes, public accuracy, and reload behavior without a reveal action. Fixture oracle latency and gas measure the local callback path, not a paid testnet refresh. The complete-round local measurement is in `docs/evidence/complete-round-local.json`; live oracle latency samples remain in `docs/evidence/testnet-latency-cost-samples.json` and the feasibility record.
 
-The start and test commands check for the configured sandbox 2.14.0 binary and the compiled contract before running. If either is missing, follow the setup commands above. The contract checks deploy to a real sandbox, reject initialization twice, transfer funds, advance sandbox time, and exercise repeated upkeep, death, and the fifteen-day live rate. The browser test starts its own sandbox, advances its time through a test-only endpoint, and checks the displayed funds and life. Test processes need permission to bind local ports. They require no paid inference or personal keys.
+The start and test commands check for the configured sandbox 2.14.0 binary and compiled contract before running. `npm test` also launches Chromium once before starting its contract suite, so missing browser libraries fail early with the install command. If a prerequisite is missing, follow the setup commands above. The contract checks deploy to a real sandbox, reject initialization twice, transfer funds, advance sandbox time, and exercise repeated upkeep, death, and the fifteen-day live rate. The browser test starts its own sandbox, advances its time through a test-only endpoint, and checks the displayed funds and life. Test processes need permission to bind local ports. They require no paid inference or personal keys.
 
 If sandbox tests stall or fail, first check the configured sandbox variables and binary, then check free temporary space with `df -h /tmp` and look for leftover processes with `ps -ef | grep '[n]ear-sandbox'`. Stop only sandbox processes you know are no longer needed and remove only their obsolete temporary data. An expired block-hash message can be followed by a retry that takes time; check whether the test completes before interrupting it. If a browser test reports its port is in use, stop the other test server or run the tests after it finishes.
 
