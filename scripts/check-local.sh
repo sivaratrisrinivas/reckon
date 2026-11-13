@@ -15,7 +15,19 @@ case "$version" in
   'neard (release 2.14.0) '*) ;;
   *) echo "Expected NEAR sandbox 2.14.0, found: $version" >&2; exit 1 ;;
 esac
-if [ ! -f contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm ]; then
+contract_wasm=contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm
+if [ ! -f "$contract_wasm" ]; then
   echo 'Contract Wasm missing. Run npm run build:contract; see README.md.' >&2
+  exit 1
+fi
+for build_input in contract/Cargo.toml contract/Cargo.lock rust-toolchain.toml; do
+  if [ "$build_input" -nt "$contract_wasm" ]; then
+    echo "Contract Wasm is older than $build_input. Run npm run build:contract; see README.md." >&2
+    exit 1
+  fi
+done
+stale_source=$(find contract/src -type f -name '*.rs' -newer "$contract_wasm" -print -quit)
+if [ -n "$stale_source" ]; then
+  echo "Contract Wasm is older than $stale_source. Run npm run build:contract; see README.md." >&2
   exit 1
 fi
