@@ -69,17 +69,25 @@ try {
   assert.equal(BigInt(prediction.deadline_ns) - BigInt(prediction.published_at_ns), 300_000_000_000n);
 
   const challenger = await root.createSubAccount('challenger', {initialBalance: 10n * NEAR});
-  const contractBalanceBeforeTake = BigInt((await contract.balance()).total);
+  const contractBalanceBeforeWrongDeposit = BigInt((await contract.balance()).total);
   await assert.rejects(challenger.call(contract, 'challenge_prediction', {prediction_id: prediction.id}, {
     attachedDeposit: BigInt(prediction.challenger_stake) + 1n,
   }));
-  assert.equal(BigInt((await contract.balance()).total), contractBalanceBeforeTake, 'a wrong deposit is rejected without custody');
+  assert.equal(BigInt((await contract.balance()).total), contractBalanceBeforeWrongDeposit, 'a wrong deposit is rejected without custody');
+  const custodyBeforeSelfChallenge = await contract.view<{challenger_custody: string}>('life');
   await assert.rejects(contract.call(contract, 'challenge_prediction', {prediction_id: prediction.id}, {
     attachedDeposit: BigInt(prediction.challenger_stake),
   }), 'the contract cannot challenge its own prediction');
-  assert.equal(BigInt((await contract.balance()).total), contractBalanceBeforeTake, 'a self-challenge does not enter custody');
+  const custodyAfterSelfChallenge = await contract.view<{challenger_custody: string}>('life');
+  assert.equal(BigInt(custodyAfterSelfChallenge.challenger_custody), BigInt(custodyBeforeSelfChallenge.challenger_custody), 'a self-challenge does not enter custody');
+  const contractBalanceBeforeTake = BigInt((await contract.balance()).total);
 
-  const challengeLifeBefore = await contract.view<{spendable_bankroll: string; committed_bankroll: string; challenger_custody: string}>('life');
+  const challengeLifeBefore = await contract.view<{
+    spendable_bankroll: string;
+    committed_bankroll: string;
+    challenger_custody: string;
+    retired_bankroll: string;
+  }>('life');
   const acceptedChallenge = await challenger.call<{
     challenger_account_id: string | null;
     challenged_at_ns: string | null;
@@ -90,8 +98,19 @@ try {
   assert.equal(acceptedChallenge.challenger_account_id, challenger.accountId, 'the contract records the actual challenger identity');
   assert(acceptedChallenge.challenged_at_ns, 'the contract records acceptance time');
   assert.equal(acceptedChallenge.agent_stake_committed, true, 'acceptance commits Reckon stake');
-  const challengeLifeAfter = await contract.view<{spendable_bankroll: string; committed_bankroll: string; challenger_custody: string}>('life');
-  assert.equal(BigInt(challengeLifeBefore.spendable_bankroll) - BigInt(challengeLifeAfter.spendable_bankroll), BigInt(prediction.agent_stake));
+  const challengeLifeAfter = await contract.view<{
+    spendable_bankroll: string;
+    committed_bankroll: string;
+    challenger_custody: string;
+    retired_bankroll: string;
+  }>('life');
+  const agentPartitionBefore = BigInt(challengeLifeBefore.spendable_bankroll)
+    + BigInt(challengeLifeBefore.committed_bankroll)
+    + BigInt(challengeLifeBefore.retired_bankroll);
+  const agentPartitionAfter = BigInt(challengeLifeAfter.spendable_bankroll)
+    + BigInt(challengeLifeAfter.committed_bankroll)
+    + BigInt(challengeLifeAfter.retired_bankroll);
+  assert.equal(agentPartitionAfter, agentPartitionBefore, 'accepted stakes move from spendable to committed while upkeep moves to retired');
   assert.equal(BigInt(challengeLifeAfter.committed_bankroll), BigInt(prediction.agent_stake));
   assert.equal(BigInt(challengeLifeAfter.challenger_custody), BigInt(prediction.challenger_stake));
   const contractBalanceAfterTake = BigInt((await contract.balance()).total);

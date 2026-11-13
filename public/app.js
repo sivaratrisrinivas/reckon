@@ -68,7 +68,7 @@ function renderPrediction(prediction, modelId) {
   $('confidence').textContent = `${(prediction.confidence_ppm / 10_000).toFixed(2)}%`;
   $('agent-stake').textContent = near(prediction.agent_stake);
   $('challenger-stake').textContent = near(prediction.challenger_stake);
-  $('challenge-deadline').textContent = dateFromNs(prediction.challenge_deadline_ns);
+  $('prediction-challenge-deadline').textContent = dateFromNs(prediction.challenge_deadline_ns);
   $('deadline').textContent = dateFromNs(prediction.deadline_ns);
   $('model-id').textContent = modelId || 'Recorded in the downloadable evidence';
   $('fingerprint').textContent = prediction.evidence_hash;

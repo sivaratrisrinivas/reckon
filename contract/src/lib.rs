@@ -306,8 +306,8 @@ impl Reckon {
             prediction.agent_stake.0 <= self.spendable,
             "Reckon no longer has sufficient spendable bankroll"
         );
-        let current_risk_cap = U256::from(self.spendable) * U256::from(MAX_AGENT_RISK_BPS)
-            / U256::from(BASIS_POINTS);
+        let current_risk_cap =
+            U256::from(self.spendable) * U256::from(MAX_AGENT_RISK_BPS) / U256::from(BASIS_POINTS);
         require!(
             U256::from(prediction.agent_stake.0) <= current_risk_cap,
             "The quoted agent stake exceeds the current risk cap"

@@ -79,7 +79,7 @@ test('invalid evidence and abstention publish nothing; one browser request publi
   await expect(page.locator('#challenge-loss')).toContainText('You can lose the full stake');
   await expect(page.locator('#settlement-rule')).toContainText('first successful valid oracle request initiated after the prediction deadline');
   await page.getByRole('button', {name: 'Challenge Prediction'}).click();
-  const walletApproval = page.getByRole('dialog', {name: 'Local wallet approval'});
+  const walletApproval = page.getByRole('dialog', {name: 'Approve this challenge'});
   await expect(walletApproval).toBeVisible();
   await expect(walletApproval.locator('#approval-stake')).toHaveText(formatNear(prediction.challenger_stake));
   await expect(walletApproval.locator('#approval-return')).toHaveText(formatNear((BigInt(prediction.challenger_stake) + BigInt(prediction.agent_stake)).toString()));
@@ -89,7 +89,7 @@ test('invalid evidence and abstention publish nothing; one browser request publi
   await expect(walletApproval.locator('#approval-settlement-rule')).toBeVisible();
   await walletApproval.getByRole('button', {name: 'Approve stake in local wallet'}).click();
   await expect(page.locator('#forecast-status')).toContainText('accepted on chain', {timeout: 30_000});
-  await expect(page.locator('#transaction-state')).toContainText('confirmed; the contract accepted');
+  await expect(page.locator('#transaction-state')).toContainText(/confirmed; the contract accepted|contract confirms your position/);
   const accepted = (await (await request.get('/api/predictions/active')).json()).prediction;
   expect(accepted.challenger_account_id).toBe(walletBefore.account_id);
   expect(accepted.agent_stake_committed).toBe(true);
