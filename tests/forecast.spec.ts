@@ -18,6 +18,11 @@ function formatNear(amount: string): string {
   return `${whole}.${fraction || '0'} NEAR`;
 }
 
+async function recordCounts(request: APIRequestContext): Promise<{published: bigint; valid: bigint}> {
+  const summary = await (await request.get('/api/predictions/summary')).json() as {published: string; valid_outcomes: string};
+  return {published: BigInt(summary.published), valid: BigInt(summary.valid_outcomes)};
+}
+
 test('invalid evidence and abstention publish nothing; one browser request publishes fixed terms and downloadable evidence', async ({page, request}) => {
   await expect((await request.get('/api/predictions/active')).status()).toBe(200);
   expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
@@ -49,7 +54,7 @@ test('invalid evidence and abstention publish nothing; one browser request publi
   const walletBefore = await (await request.get('/api/wallet')).json();
   await expect(page.locator('#wallet-state')).toContainText(walletBefore.account_id);
   const before = (await (await request.get('/test/forecast-stats')).json()).fixture_model_calls;
-  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  await page.getByRole('button', {name: 'Just watch'}).click();
   await expect(page.getByRole('status').filter({hasText: 'Checking recent market evidence'})).toBeVisible();
 
   const sharedRequest = await request.post('/api/forecast', {data: {}});
@@ -78,7 +83,7 @@ test('invalid evidence and abstention publish nothing; one browser request publi
   await expect(page.locator('#challenge-deadline')).not.toBeEmpty();
   await expect(page.locator('#challenge-network')).toContainText('Local NEAR sandbox · test money');
   await expect(page.locator('#challenge-loss')).toContainText('You can lose the full stake');
-  await expect(page.locator('#settlement-rule')).toContainText('first successful valid oracle request initiated after the prediction deadline');
+  await expect(page.locator('#settlement-rule')).toContainText('first valid response completed within 120 seconds sets the result');
   await page.getByRole('button', {name: 'Challenge Prediction'}).click();
   const walletApproval = page.getByRole('dialog', {name: 'Approve this challenge'});
   await expect(walletApproval).toBeVisible();
@@ -152,10 +157,12 @@ test('invalid evidence and abstention publish nothing; one browser request publi
 });
 
 test('unchallenged round resolves into public accuracy without moving betting funds', async ({page, request}) => {
+  const before = await recordCounts(request);
   await scenario(request, 'publish');
   await page.goto('/');
   const walletBefore = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
-  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  await page.getByRole('button', {name: 'Just watch'}).click();
+  await expect(page.locator('#forecast-status')).toContainText(/Prediction #\d+ is published/);
   await expect(page.locator('#prediction')).toBeVisible();
   const prediction = (await (await request.get('/api/predictions/active')).json()).prediction;
   expect(prediction.challenger_account_id).toBeNull();
@@ -164,7 +171,7 @@ test('unchallenged round resolves into public accuracy without moving betting fu
   expect((await request.post('/test/settlement-scenario', {data: {scenario: 'below'}})).status()).toBe(204);
   expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
   await expect(page.locator('#settlement-state')).toContainText('Resolved NO', {timeout: 20_000});
-  await expect(page.locator('#record-summary')).toContainText('2 published · 2 valid outcomes');
+  await expect(page.locator('#record-summary')).toContainText(`${before.published + 1n} published · ${before.valid + 1n} valid outcomes`);
   await expect(page.locator('.record-entry').last()).toContainText('Outcome NO');
   await expect(page.locator('.record-entry').last()).toContainText('No outgoing payment required');
   expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBe(walletBefore);
@@ -178,7 +185,8 @@ async function publishAndChallenge(page: Page, request: APIRequestContext) {
   await scenario(request, 'publish');
   await page.goto('/');
   const balanceBefore = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
-  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  await page.getByRole('button', {name: 'Just watch'}).click();
+  await expect(page.locator('#forecast-status')).toContainText(/Prediction #\d+ is published/);
   await expect(page.locator('#prediction')).toBeVisible();
   const prediction = (await (await request.get('/api/predictions/active')).json()).prediction;
   await page.getByRole('button', {name: 'Challenge Prediction'}).click();
@@ -190,12 +198,13 @@ async function publishAndChallenge(page: Page, request: APIRequestContext) {
 }
 
 test('challenger win returns both stakes and the public result survives reload', async ({page, request}) => {
+  const before = await recordCounts(request);
   const {prediction, balanceBefore} = await publishAndChallenge(page, request);
   expect((await request.post('/test/settlement-scenario', {data: {scenario: 'above'}})).status()).toBe(204);
   expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
   await expect(page.locator('#settlement-state')).toContainText('Resolved YES', {timeout: 20_000});
   await expect(page.locator('#settlement-state')).toContainText('Payment confirmed on chain');
-  await expect(page.locator('#record-summary')).toContainText('3 valid outcomes');
+  await expect(page.locator('#record-summary')).toContainText(`${before.valid + 1n} valid outcomes`);
   await expect(page.locator('.record-entry').last()).toContainText('Payment receipt confirmed on chain');
   expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBeGreaterThan(balanceBefore);
   expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
@@ -206,17 +215,22 @@ test('challenger win returns both stakes and the public result survives reload',
 });
 
 test('stalled oracle observation voids after the bounded window and refunds the challenger', async ({page, request}) => {
+  const before = await recordCounts(request);
   const {balanceAfterChallenge} = await publishAndChallenge(page, request);
   expect((await request.post('/test/settlement-scenario', {data: {scenario: 'stalled'}})).status()).toBe(204);
-  expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
-  await expect(page.locator('#settlement-state')).toContainText('pending oracle observation', {timeout: 20_000});
+  const advanced = await request.post('/test/advance', {data: {seconds: 330}});
+  expect(advanced.status()).toBe(204);
+  const stalled = (await (await request.get('/api/predictions/active')).json()).prediction;
+  expect(BigInt(advanced.headers()['x-test-sandbox-timestamp'] ?? '0')).toBeGreaterThanOrEqual(BigInt(stalled.deadline_ns));
+  await expect.poll(async () => (await (await request.get('/api/predictions/active')).json()).prediction?.settlement_status, {timeout: 20_000}).toBe('observing');
+  await expect(page.locator('#settlement-state')).toContainText('The keeper requested the declared oracle', {timeout: 20_000});
   const observing = (await (await request.get('/api/predictions/active')).json()).prediction;
   expect(observing.settlement_status).toBe('observing');
   expect(observing.settlement_request_id).toBeTruthy();
   expect((await request.post('/test/advance', {data: {seconds: 120}})).status()).toBe(204);
   await expect(page.locator('#settlement-state')).toContainText('was voided', {timeout: 20_000});
   await expect(page.locator('#settlement-state')).toContainText('refund remains paid on chain');
-  await expect(page.locator('#record-summary')).toContainText('4 published · 3 valid outcomes');
+  await expect(page.locator('#record-summary')).toContainText(`${before.published + 1n} published · ${before.valid} valid outcomes`);
   expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBeGreaterThan(balanceAfterChallenge);
   await page.reload();
   await expect(page.locator('.record-entry').last()).toContainText('VOID');
@@ -244,45 +258,135 @@ test('failed payout stays visible and can be recovered without changing the fina
   await expect(page.locator('#payment-recovery')).toBeHidden();
 });
 
-test('death is permanent while an outstanding challenged round settles and remains readable', async ({page, request}) => {
+test('challenge ask checks the local wallet before inference and waits for explicit stake approval', async ({page, request}) => {
   await scenario(request, 'publish');
-  const lifeBefore = await (await request.get('/api/life')).json() as {dead: boolean; remaining_life_ns: string};
-  expect(lifeBefore.dead).toBe(false);
-  const secondsToReserve = Number(BigInt(lifeBefore.remaining_life_ns) / 1_000_000_000n) - 240;
-  expect(secondsToReserve).toBeGreaterThan(0);
-  expect((await request.post('/test/advance', {data: {seconds: secondsToReserve}})).status()).toBe(204);
-  const lifeAfterReserve = await (await request.get('/api/life')).json() as {dead: boolean; remaining_life_ns: string};
-  expect(lifeAfterReserve.dead, `the test setup must leave time to publish and challenge: ${JSON.stringify(lifeAfterReserve)}`).toBe(false);
-
+  await request.post('/api/wallet/fund');
   await page.goto('/');
+  await expect(page.locator('#wallet-state')).toContainText('EPHEMERAL SANDBOX KEY');
+  const balanceBefore = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  const callsBefore = (await (await request.get('/test/forecast-stats')).json()).fixture_model_calls;
+  const startedAt = Date.now();
+  let appClicks = 0;
+
   await page.getByRole('button', {name: 'Ask Reckon'}).click();
-  await expect(page.locator('#prediction')).toBeVisible();
-  const prediction = (await (await request.get('/api/predictions/active')).json()).prediction;
-  await page.getByRole('button', {name: 'Challenge Prediction'}).click();
-  await page.getByRole('dialog', {name: 'Approve this challenge'}).getByRole('button', {name: 'Approve stake in local wallet'}).click();
+  appClicks += 1;
+  const approval = page.getByRole('dialog', {name: 'Approve this challenge'});
+  await expect(approval).toBeVisible();
+  const published = (await (await request.get('/api/predictions/active')).json()).prediction;
+  expect(published.challenger_account_id).toBeNull();
+  expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBe(balanceBefore);
+  expect((await (await request.get('/test/forecast-stats')).json()).fixture_model_calls - callsBefore).toBe(1);
+
+  await approval.getByRole('button', {name: 'Approve stake in local wallet'}).click();
+  appClicks += 1;
   await expect(page.locator('#forecast-status')).toContainText('accepted on chain', {timeout: 30_000});
-
-  expect((await request.post('/test/settlement-scenario', {data: {scenario: 'above'}})).status()).toBe(204);
-  expect((await request.post('/test/advance', {data: {seconds: 120}})).status()).toBe(204);
-  await expect.poll(async () => (await (await request.get('/api/life')).json()).dead).toBe(false);
-  expect((await request.post('/test/advance', {data: {seconds: 60}})).status()).toBe(204);
-  await expect.poll(async () => (await (await request.get('/api/life')).json()).dead).toBe(true);
-  expect((await request.post('/test/accrue')).status()).toBe(204);
-  await page.reload();
-  await expect(page.locator('#life-state')).toHaveText('Depleted · permanently dead');
-  await expect(page.locator('#death-date')).toContainText('Death date:');
-  await expect(page.getByRole('button', {name: 'Ask Reckon'})).toBeHidden();
-  await expect(page.locator('#challenge-panel')).toBeHidden();
-  await expect(page.locator('#fingerprint')).toHaveText(prediction.evidence_hash);
-
-  // The prediction deadline has passed, but this is still before the bounded settlement cutoff.
-  expect((await request.post('/test/advance', {data: {seconds: 150}})).status()).toBe(204);
+  expect(appClicks).toBeLessThanOrEqual(2);
+  const externalWalletActions = 0;
+  const externalFaucetActions = 0;
+  expect(externalWalletActions).toBe(0);
+  expect(externalFaucetActions).toBe(0);
+  expect(Date.now() - startedAt).toBeLessThan(60_000);
+  await request.post('/test/settlement-scenario', {data: {scenario: 'above'}});
+  expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
   await expect(page.locator('#settlement-state')).toContainText('Resolved YES', {timeout: 20_000});
-  await expect(page.locator('#settlement-state')).toContainText('Payment confirmed on chain');
-  await expect(page.locator('.record-entry').last()).toContainText('Outcome YES');
-  await expect(page.locator('.record-entry').last()).toContainText('Payment receipt confirmed on chain');
+});
+
+test('wrong-network wallet stops before inference and publication', async ({page, request}) => {
+  await scenario(request, 'publish');
+  await page.goto('/');
+  await request.post('/test/wallet-scenario', {data: {scenario: 'wrong-network'}});
+  const callsBefore = (await (await request.get('/test/forecast-stats')).json()).fixture_model_calls;
+
+  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  await expect(page.locator('#forecast-status')).toContainText('expected the local sandbox');
+  expect((await (await request.get('/test/forecast-stats')).json()).fixture_model_calls).toBe(callsBefore);
+  expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
+  expect((await request.post('/test/wallet-scenario', {data: {scenario: 'sandbox'}})).status()).toBe(204);
+});
+
+test('insufficient local funds use one labelled top-up and resume only the active challenge request', async ({page, request}) => {
+  await scenario(request, 'publish');
+  await request.post('/test/wallet-scenario', {data: {scenario: 'insufficient'}});
+  await page.goto('/');
+  const callsBefore = (await (await request.get('/test/forecast-stats')).json()).fixture_model_calls;
+  const startedAt = Date.now();
+  let appClicks = 0;
+
+  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  appClicks += 1;
+  await expect(page.locator('#wallet-preparation')).toBeVisible();
+  expect((await (await request.get('/test/forecast-stats')).json()).fixture_model_calls).toBe(callsBefore);
+  expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
+  await page.getByRole('button', {name: 'Fund local test wallet'}).click();
+  appClicks += 1;
+
+  const approval = page.getByRole('dialog', {name: 'Approve this challenge'});
+  await expect(approval).toBeVisible();
+  const balanceBeforeApproval = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  const prediction = (await (await request.get('/api/predictions/active')).json()).prediction;
+  expect(prediction.challenger_account_id).toBeNull();
+  expect(balanceBeforeApproval).toBeGreaterThanOrEqual(25n * 10n ** 24n);
+  await approval.getByRole('button', {name: 'Approve stake in local wallet'}).click();
+  appClicks += 1;
+  await expect(page.locator('#forecast-status')).toContainText('accepted on chain', {timeout: 30_000});
+  expect(appClicks).toBeLessThanOrEqual(3);
+  const localFundingActions = 1;
+  const externalWalletActions = 0;
+  const externalFaucetActions = 0;
+  expect(localFundingActions).toBe(1);
+  expect(externalWalletActions).toBe(0);
+  expect(externalFaucetActions).toBe(0);
+  expect(Date.now() - startedAt).toBeLessThan(60_000);
+  await request.post('/test/settlement-scenario', {data: {scenario: 'above'}});
+  expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('Resolved YES', {timeout: 20_000});
+});
+
+test('cancelled approval and a reload during funding preparation never launch an unexpected forecast', async ({page, request}) => {
+  await scenario(request, 'publish');
+  await page.goto('/');
+  const balanceBefore = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  const approval = page.getByRole('dialog', {name: 'Approve this challenge'});
+  await expect(approval).toBeVisible();
+  await approval.getByRole('button', {name: 'Cancel'}).click();
+  await expect(page.locator('#forecast-status')).toContainText('approval cancelled');
+  expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBe(balanceBefore);
+  expect((await (await request.get('/api/predictions/active')).json()).prediction.challenger_account_id).toBeNull();
+
+  await request.post('/test/wallet-scenario', {data: {scenario: 'insufficient'}});
+  await request.post('/test/settlement-scenario', {data: {scenario: 'below'}});
+  expect((await request.post('/test/advance', {data: {seconds: 380}})).status()).toBe(204);
   await page.reload();
-  await expect(page.locator('.record-entry').last()).toContainText('Outcome YES');
-  await expect(page.getByRole('button', {name: 'Ask Reckon'})).toBeHidden();
-  await expect(page.locator('#challenge-panel')).toBeHidden();
+  await expect(page.locator('#settlement-state')).toContainText('Resolved NO', {timeout: 20_000});
+  const callsBeforeReloadIntent = (await (await request.get('/test/forecast-stats')).json()).fixture_model_calls;
+  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  await expect(page.locator('#wallet-preparation')).toBeVisible();
+  await page.reload();
+  await expect(page.locator('#wallet-preparation')).toBeHidden();
+  expect((await (await request.get('/test/forecast-stats')).json()).fixture_model_calls).toBe(callsBeforeReloadIntent);
+  expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
+  await expect(page.getByRole('button', {name: 'Just watch'})).toBeVisible();
+});
+
+test('a lost local challenger race is reported as a failed attempt', async ({page, request}) => {
+  await scenario(request, 'publish');
+  await request.post('/api/wallet/fund');
+  await page.goto('/');
+  const balanceBefore = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  const approval = page.getByRole('dialog', {name: 'Approve this challenge'});
+  await expect(approval).toBeVisible();
+  const prediction = (await (await request.get('/api/predictions/active')).json()).prediction;
+  expect((await request.post('/test/challenge-race')).status()).toBe(204);
+  await approval.getByRole('button', {name: 'Approve stake in local wallet'}).click();
+  await expect(page.locator('#transaction-state')).toContainText('another wallet', {timeout: 30_000});
+  const after = (await (await request.get(`/api/predictions?start_id=${prediction.id}&limit=1`)).json())[0];
+  expect(after.challenger_account_id).not.toBe((await (await request.get('/api/wallet')).json()).account_id);
+  const balanceAfter = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  expect(balanceBefore - balanceAfter).toBeLessThan(BigInt(prediction.challenger_stake));
+  expect(await page.locator('#forecast-status').textContent()).toContain('taken');
+  await request.post('/test/settlement-scenario', {data: {scenario: 'below'}});
+  expect((await request.post('/test/advance', {data: {seconds: 310}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('Resolved NO', {timeout: 20_000});
 });

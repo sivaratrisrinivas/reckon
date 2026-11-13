@@ -51,8 +51,23 @@
         <p class="eyebrow">ONE OPEN PREDICTION</p>
         <h2 id="forecast-heading">Ask Reckon</h2>
         <p class="forecast-copy">Reckon checks recent NEAR/USD evidence and its settlement reference, then makes one fixed five-minute forecast or abstains. Requesting does not reserve the challenger slot.</p>
-        <button id="ask-button" class="primary" type="button">Ask Reckon</button>
+        <div class="forecast-actions">
+          <button id="ask-button" class="primary" type="button">Ask Reckon</button>
+          <button id="watch-button" class="secondary" type="button">Just watch</button>
+        </div>
         <p id="forecast-status" class="forecast-status" role="status" aria-live="polite">Checking whether Reckon is available.</p>
+        <p class="note">Ask Reckon checks the local sandbox wallet before inference, then opens the stake approval when ready. No stake moves unless you approve. “Just watch” asks without using a wallet.</p>
+
+        <section id="wallet-preparation" class="challenge-panel" hidden aria-labelledby="wallet-preparation-heading">
+          <p class="eyebrow">LOCAL WALLET PREPARATION</p>
+          <h3 id="wallet-preparation-heading">Add sandbox test money</h3>
+          <p id="wallet-preparation-state" class="challenge-copy" role="status"></p>
+          <p class="note">This local top-up uses test money on the NEAR sandbox. It does not contact a real faucet or move real funds.</p>
+          <div class="dialog-actions">
+            <button id="fund-wallet-button" class="primary" type="button">Fund local test wallet</button>
+            <button id="cancel-wallet-preparation" class="secondary" type="button">Cancel</button>
+          </div>
+        </section>
 
         <article id="prediction" class="prediction" aria-labelledby="prediction-title" hidden>
           <p class="eyebrow">PUBLISHED ON THE LOCAL SANDBOX</p>

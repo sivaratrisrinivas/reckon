@@ -86,6 +86,8 @@ p { color: var(--muted); }
 .partition dd, .terms dd { margin: .35rem 0 0; color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .note { max-width: 75ch; margin: 1.6rem 0 0; font-size: .875rem; }
 .forecast-copy { max-width: 72ch; }
+.forecast-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.forecast-actions button { margin: .5rem 0 .25rem; }
 
 .primary {
   min-height: 3.25rem;
@@ -159,6 +161,8 @@ footer {
   .scene, .forecast { margin-top: 2rem; padding: 1.25rem; }
   .partition { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .terms { grid-template-columns: 1fr; }
+  .forecast-actions { align-items: stretch; flex-direction: column; }
+  .forecast-actions button { width: 100%; }
   .approval-terms { grid-template-columns: 1fr; }
   .glyph { width: 65px; height: 65px; }
   .glyph span { width: 32px; height: 32px; }

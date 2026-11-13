@@ -57,6 +57,8 @@ export type OnChainPrediction = {
   published_at_ns: string;
   challenge_deadline_ns: string;
   deadline_ns: string;
+  challenger_account_id: string | null;
+  challenged_at_ns: string | null;
   settlement_status: 'waiting' | 'observing' | 'resolved' | 'void';
   settlement_request_id: string | null;
   settlement_requested_at_ns: string | null;

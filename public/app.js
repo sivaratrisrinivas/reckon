@@ -7,6 +7,9 @@ let currentPrediction = null;
 let providerMode = 'fixture';
 let agentIsDead = false;
 let requestInFlight = false;
+let challengePreparationInFlight = false;
+let walletFundingInFlight = false;
+let activeChallengeIntent = null;
 let challengeInFlight = false;
 let paymentRetryInFlight = false;
 let contractAccountId = '';
@@ -55,8 +58,12 @@ function showStatus(message, kind = '') {
 
 function setAvailableAction() {
   const unresolvedPrediction = currentPrediction && !currentPrediction.outcome;
-  $('ask-button').hidden = Boolean(unresolvedPrediction) || agentIsDead;
-  $('ask-button').disabled = requestInFlight || agentIsDead;
+  const hidden = Boolean(unresolvedPrediction) || agentIsDead;
+  const disabled = requestInFlight || challengePreparationInFlight || agentIsDead;
+  $('ask-button').hidden = hidden;
+  $('ask-button').disabled = disabled;
+  $('watch-button').hidden = hidden;
+  $('watch-button').disabled = requestInFlight || agentIsDead;
   if (agentIsDead) showStatus('Reckon is permanently dead. New predictions are disabled.', 'unavailable');
   else if (!currentPrediction && !requestInFlight && !$('forecast-status').dataset.kind) {
     showStatus('Reckon is idle. Asking does not reserve the challenger slot.');
@@ -66,6 +73,7 @@ function setAvailableAction() {
 function renderPrediction(prediction, modelId) {
   currentPrediction = prediction;
   $('ask-button').hidden = !prediction.outcome || agentIsDead;
+  $('watch-button').hidden = !prediction.outcome || agentIsDead;
   $('prediction').hidden = false;
   $('question').textContent = prediction.question;
   $('reference').textContent = price(prediction.reference_multiplier, prediction.reference_decimals);
@@ -283,12 +291,14 @@ async function loadSandboxWallet() {
     $('wallet-state').textContent = `CONNECTED · ${wallet.account_id} · EPHEMERAL SANDBOX KEY`;
     $('wallet-balance').textContent = `Available ${near(wallet.available_balance)}`;
     renderChallengeOffer();
+    return true;
   } catch {
     challengerSecretKey = null;
     challengerPublicKey = null;
     $('wallet-state').textContent = 'LOCAL SANDBOX WALLET · UNAVAILABLE';
     $('wallet-balance').textContent = 'Challenge signing unavailable';
     renderChallengeOffer();
+    return false;
   }
 }
 
@@ -299,6 +309,105 @@ async function refreshWalletBalance() {
   } catch {
     $('wallet-balance').textContent = 'Balance unavailable';
   }
+}
+
+function challengeIntentIsActive(intent) {
+  return activeChallengeIntent === intent && Date.now() < intent.expiresAt;
+}
+
+function cancelChallengeIntent(message) {
+  activeChallengeIntent = null;
+  $('wallet-preparation').hidden = true;
+  $('fund-wallet-button').disabled = false;
+  if (message) showStatus(message, 'unavailable');
+  setAvailableAction();
+}
+
+async function prepareChallengeIntent(intent) {
+  if (!challengeIntentIsActive(intent)) {
+    cancelChallengeIntent('Challenge preparation expired. No forecast was requested. Start again to create a fresh request.');
+    return;
+  }
+  try {
+    const config = await getJson('/api/config');
+    if (config.network_id !== 'sandbox') {
+      cancelChallengeIntent(`Challenge preparation stopped: expected the local sandbox, received ${config.network_id}. No forecast was requested.`);
+      return;
+    }
+    if (!challengerSecretKey || !challengerAccountId) {
+      if (!await loadSandboxWallet()) {
+        cancelChallengeIntent('The local sandbox wallet could not be prepared. No forecast was requested.');
+        return;
+      }
+    }
+    const readiness = await getJson('/api/wallet/readiness');
+    if (readiness.network_id !== 'sandbox' || readiness.account_id !== challengerAccountId) {
+      cancelChallengeIntent('The wallet network or account changed during preparation. No forecast was requested.');
+      return;
+    }
+    if (BigInt(readiness.available_balance) < BigInt(readiness.required_challenge_balance)) {
+      $('wallet-preparation-state').textContent = `Available ${near(readiness.available_balance)}; at least ${near(readiness.required_challenge_balance)} is needed for the largest supported local challenge. No inference or publication has started.`;
+      $('fund-wallet-button').disabled = false;
+      $('wallet-preparation').hidden = false;
+      showStatus('The local test wallet needs more test money before a challenge forecast. You can fund it or cancel.', 'unavailable');
+      return;
+    }
+    $('wallet-preparation').hidden = true;
+    if (!challengeIntentIsActive(intent)) {
+      cancelChallengeIntent('Challenge preparation expired. No forecast was requested. Start again to create a fresh request.');
+      return;
+    }
+    await requestForecast(intent);
+  } catch {
+    cancelChallengeIntent('Local wallet preparation failed. No forecast was requested.');
+  }
+}
+
+async function beginChallengeForecast() {
+  if (challengePreparationInFlight || requestInFlight || agentIsDead || (currentPrediction && !currentPrediction.outcome)) return;
+  const intent = {id: globalThis.crypto.randomUUID(), expiresAt: Date.now() + 60_000};
+  activeChallengeIntent = intent;
+  challengePreparationInFlight = true;
+  $('ask-button').textContent = 'Preparing local wallet…';
+  $('wallet-preparation').hidden = true;
+  setAvailableAction();
+  try {
+    await prepareChallengeIntent(intent);
+  } finally {
+    challengePreparationInFlight = false;
+    setAvailableAction();
+  }
+}
+
+async function fundWalletForChallengeIntent() {
+  const intent = activeChallengeIntent;
+  if (!intent || walletFundingInFlight || !challengeIntentIsActive(intent)) {
+    cancelChallengeIntent('Challenge preparation expired. No forecast was requested. Start again to create a fresh request.');
+    return;
+  }
+  walletFundingInFlight = true;
+  challengePreparationInFlight = true;
+  $('fund-wallet-button').disabled = true;
+  $('wallet-preparation-state').textContent = 'Adding local sandbox test money, then rechecking the wallet for this request…';
+  try {
+    const response = await fetch('/api/wallet/fund', {method: 'POST'});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Local funding failed');
+    await refreshWalletBalance();
+    if (challengeIntentIsActive(intent)) await prepareChallengeIntent(intent);
+    else cancelChallengeIntent('Challenge preparation expired while funding. No forecast was requested. Start again to create a fresh request.');
+  } catch {
+    cancelChallengeIntent('Local sandbox funding failed. No forecast was requested. Try again when the wallet is available.');
+  } finally {
+    walletFundingInFlight = false;
+    challengePreparationInFlight = false;
+    setAvailableAction();
+  }
+}
+
+function cancelWalletApproval() {
+  $('challenge-dialog').close();
+  cancelChallengeIntent('Challenge approval cancelled. The published forecast remains available and no stake moved.');
 }
 
 function openChallengeApproval() {
@@ -313,6 +422,11 @@ function openChallengeApproval() {
 
 async function approveChallenge() {
   if (!challengerSecretKey || !currentPrediction || challengeInFlight) return;
+  if (activeChallengeIntent && !challengeIntentIsActive(activeChallengeIntent)) {
+    $('challenge-dialog').close();
+    cancelChallengeIntent('Challenge request expired before approval. No stake moved. Start again to request a new challenge.');
+    return;
+  }
   const prediction = currentPrediction;
   if (BigInt(Date.now()) * 1_000_000n >= BigInt(prediction.challenge_deadline_ns)) {
     $('challenge-dialog').close();
@@ -321,6 +435,7 @@ async function approveChallenge() {
   }
 
   challengeInFlight = true;
+  activeChallengeIntent = null;
   $('challenge-button').disabled = true;
   $('challenge-dialog').close();
   $('transaction-state').textContent = 'Wallet approved. Signing and submitting the exact quoted stake…';
@@ -514,8 +629,8 @@ async function refreshPrediction() {
     if (prediction && (!currentPrediction || currentPrediction.id !== prediction.id)) {
       renderPrediction(prediction);
     } else if (prediction) {
-      currentPrediction = prediction;
-      renderChallengeOffer();
+      if (JSON.stringify(currentPrediction) !== JSON.stringify(prediction)) renderPrediction(prediction);
+      else renderChallengeOffer();
     } else if (!prediction && !currentPrediction && !requestInFlight) {
       setAvailableAction();
     }
@@ -542,17 +657,30 @@ async function loadConfiguration() {
   }
 }
 
-async function requestForecast() {
+async function requestForecast(challengeIntent = null) {
   if (requestInFlight || (currentPrediction && !currentPrediction.outcome) || agentIsDead) return;
+  if (challengeIntent && !challengeIntentIsActive(challengeIntent)) {
+    cancelChallengeIntent('Challenge preparation expired. No forecast was requested. Start again to create a fresh request.');
+    return;
+  }
   requestInFlight = true;
   $('ask-button').disabled = true;
   $('ask-button').textContent = 'Thinking…';
   showStatus('Checking recent market evidence and the settlement reference, then asking the configured model.', 'thinking');
+  let approvalOpened = false;
   try {
     const response = await fetch('/api/forecast', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
     const result = await response.json();
     if (result.status === 'published') {
       renderPrediction(result.prediction, result.model_id);
+      if (challengeIntent) {
+        if (challengeIntentIsActive(challengeIntent)) {
+          openChallengeApproval();
+          approvalOpened = $('challenge-dialog').open;
+        } else {
+          showStatus('The forecast was published after its challenge request expired. Review it without an automatic approval prompt.', 'published');
+        }
+      }
     } else if (result.status === 'abstained') {
       showStatus(`Reckon abstained. No prediction was published. ${result.justification}`, 'abstained');
     } else if (result.status === 'busy') {
@@ -574,6 +702,10 @@ async function requestForecast() {
   } finally {
     requestInFlight = false;
     $('ask-button').textContent = 'Ask Reckon';
+    if (challengeIntent && !approvalOpened) {
+      if (activeChallengeIntent === challengeIntent) activeChallengeIntent = null;
+      $('wallet-preparation').hidden = true;
+    }
     setAvailableAction();
     void refreshLife();
   }
@@ -608,12 +740,16 @@ async function retryPayment() {
   }
 }
 
-$('ask-button').addEventListener('click', () => void requestForecast());
+$('ask-button').addEventListener('click', () => void beginChallengeForecast());
+$('watch-button').addEventListener('click', () => void requestForecast());
+$('fund-wallet-button').addEventListener('click', () => void fundWalletForChallengeIntent());
+$('cancel-wallet-preparation').addEventListener('click', () => cancelChallengeIntent('Challenge preparation cancelled. No forecast was requested.'));
 $('challenge-button').addEventListener('click', openChallengeApproval);
 $('approve-challenge').addEventListener('click', () => void approveChallenge());
-$('cancel-challenge').addEventListener('click', () => $('challenge-dialog').close());
+$('cancel-challenge').addEventListener('click', cancelWalletApproval);
  $('retry-payment-button').addEventListener('click', () => void retryPayment());
  $('record-more').addEventListener('click', () => void loadOlderPredictions());
 void Promise.all([refreshLife(), refreshPrediction(), refreshPublicRecord(), loadConfiguration(), loadSandboxWallet()]);
+globalThis.addEventListener('pagehide', () => { activeChallengeIntent = null; });
 setInterval(() => void refreshLife(), 3_000);
 setInterval(() => { void refreshPrediction(); void refreshPublicRecord(); }, 5_000);

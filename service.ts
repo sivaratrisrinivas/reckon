@@ -16,6 +16,7 @@ if (providerMode === 'live' && (!process.env.NEAR_AI_API_KEY || !process.env.NEA
 }
 if (providerMode === 'live' && !process.env.BLOB_READ_WRITE_TOKEN) throw new Error('Live mode requires BLOB_READ_WRITE_TOKEN for public evidence storage.');
 let fixtureStorageUnavailable = false;
+let testWalletNetworkId: string | null = null;
 
 const worker = await Worker.init();
 const root = worker.rootAccount;
@@ -82,9 +83,24 @@ const files: Record<string, [string, string]> = {
 
 let settlementKeeperRunning = false;
 let paymentRecoveryInFlight = false;
+const settlementRequestsInFlight = new Set<string>();
 const paymentRetrySchedule = new Map<string, {nextAttemptAtMs: number; delayMs: number}>();
 const PAYMENT_RETRY_INITIAL_DELAY_MS = 5_000;
 const PAYMENT_RETRY_MAX_DELAY_MS = 120_000;
+const SETTLEMENT_REQUEST_SUBMISSION_TIMEOUT_MS = 15_000;
+
+function submitSettlementRequest(predictionId: string): void {
+  if (settlementRequestsInFlight.has(predictionId)) return;
+  settlementRequestsInFlight.add(predictionId);
+  const timeout = setTimeout(() => settlementRequestsInFlight.delete(predictionId), SETTLEMENT_REQUEST_SUBMISSION_TIMEOUT_MS);
+  void contract.callRaw(contract, 'request_settlement', {prediction_id: predictionId}, {gas: 250n * 10n ** 12n})
+    .catch(() => undefined)
+    .finally(() => {
+      clearTimeout(timeout);
+      settlementRequestsInFlight.delete(predictionId);
+    });
+}
+
 async function runSettlementKeeper(): Promise<void> {
   if (settlementKeeperRunning) return;
   settlementKeeperRunning = true;
@@ -99,7 +115,7 @@ async function runSettlementKeeper(): Promise<void> {
       } else if (now >= deadline && prediction.settlement_status === 'waiting') {
         // This block-time read only schedules a transaction; the contract checks its execution time.
         // If the request arrives too late, the next keeper tick can void after the cutoff.
-        await contract.callRaw(contract, 'request_settlement', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
+        submitSettlementRequest(prediction.id);
       }
     }
     await retryPendingPayments();
@@ -160,19 +176,24 @@ async function readSandboxBlockTimestamp(): Promise<bigint> {
   return (await readSandboxBlock()).timestamp;
 }
 
-async function fastForwardSandboxSeconds(seconds: number): Promise<void> {
+async function fastForwardSandboxSeconds(seconds: number): Promise<bigint> {
   const targetNs = BigInt(seconds) * 1_000_000_000n;
   const before = await readSandboxBlock();
   const sampleHeightDelta = Math.min(100, Math.max(1, Math.floor(seconds / 10)));
   await worker.provider.fastForward(sampleHeightDelta);
-  const sample = await readSandboxBlock();
-  const elapsedNs = sample.timestamp - before.timestamp;
-  const elapsedHeight = sample.height - before.height;
-  if (elapsedNs >= targetNs) return;
-  if (elapsedNs <= 0n || elapsedHeight <= 0) throw new Error('Sandbox fast-forward did not advance block time');
-  const remainingNs = targetNs - elapsedNs;
-  const additionalHeight = Number(remainingNs * BigInt(elapsedHeight) / elapsedNs);
-  if (additionalHeight > 0) await worker.provider.fastForward(additionalHeight);
+  let current = await readSandboxBlock();
+  for (let attempt = 0; current.timestamp - before.timestamp < targetNs && attempt < 5; attempt += 1) {
+    const elapsedNs = current.timestamp - before.timestamp;
+    const elapsedHeight = current.height - before.height;
+    if (elapsedNs <= 0n || elapsedHeight <= 0) throw new Error('Sandbox fast-forward did not advance block time');
+    const remainingNs = targetNs - elapsedNs;
+    const estimatedHeight = Number((remainingNs * BigInt(elapsedHeight) + elapsedNs - 1n) / elapsedNs);
+    if (!Number.isSafeInteger(estimatedHeight)) throw new Error('Sandbox fast-forward estimate exceeded the safe range');
+    await worker.provider.fastForward(Math.max(1, estimatedHeight));
+    current = await readSandboxBlock();
+  }
+  if (current.timestamp - before.timestamp < targetNs) throw new Error('Sandbox fast-forward did not reach the requested block time');
+  return current.timestamp;
 }
 
 const server = createServer(async (req, res) => {
@@ -211,7 +232,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/config') {
       json(res, 200, {
         network: 'local NEAR sandbox · test money',
-        network_id: 'sandbox',
+        network_id: testWalletNetworkId ?? 'sandbox',
         rpc_url: '/api/rpc',
         contract_account_id: contract.accountId,
         provider_mode: providerMode,
@@ -235,6 +256,27 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/wallet/balance') {
       const balance = await challengerWallet.balance();
       json(res, 200, {available_balance: balance.available}, {'Cache-Control': 'no-store'});
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/wallet/readiness') {
+      const [balance, maximumQuote] = await Promise.all([
+        challengerWallet.balance(),
+        contract.view<PredictionQuote>('quote_prediction', {confidence_ppm: 100_000}),
+      ]);
+      const requiredBalance = BigInt(maximumQuote.challenger_stake) + 10n ** 23n;
+      json(res, 200, {
+        network_id: testWalletNetworkId ?? 'sandbox',
+        account_id: challengerWallet.accountId,
+        available_balance: balance.available,
+        required_challenge_balance: requiredBalance.toString(),
+      }, {'Cache-Control': 'no-store'});
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/wallet/fund') {
+      const receipt = await root.transfer(challengerWallet, 25n * 10n ** 24n);
+      if (!receipt.succeeded) { json(res, 503, {error: 'Local sandbox funding was not accepted'}); return; }
+      const balance = await challengerWallet.balance();
+      json(res, 200, {available_balance: balance.available, funded_amount: (25n * 10n ** 24n).toString()}, {'Cache-Control': 'no-store'});
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/predictions/active') {
@@ -303,9 +345,9 @@ const server = createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const seconds = body.seconds === undefined ? 300 : Number(body.seconds);
       if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 10_000) { json(res, 400, {error: 'Advance must be between 1 and 10,000 seconds'}); return; }
-      await fastForwardSandboxSeconds(seconds);
+      const blockTimestamp = await fastForwardSandboxSeconds(seconds);
       await runSettlementKeeper();
-      res.writeHead(204).end();
+      res.writeHead(204, {'X-Test-Sandbox-Timestamp': blockTimestamp.toString()}).end();
       return;
     }
     if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/accrue') {
@@ -334,6 +376,36 @@ const server = createServer(async (req, res) => {
         json(res, 400, {error: 'Unsupported payment fixture'});
         return;
       }
+      res.writeHead(204).end();
+      return;
+    }
+    if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/wallet-scenario') {
+      const body = await readJsonBody(req);
+      if (body.scenario === 'wrong-network') {
+        testWalletNetworkId = 'testnet';
+      } else if (body.scenario === 'sandbox') {
+        testWalletNetworkId = null;
+      } else if (body.scenario === 'insufficient') {
+        testWalletNetworkId = null;
+        const balance = await challengerWallet.balance();
+        const targetBalance = 1n * 10n ** 24n;
+        const amount = BigInt(balance.available) - targetBalance;
+        if (amount > 0n) {
+          const receipt = await challengerWallet.transfer(root, amount);
+          if (!receipt.succeeded) { json(res, 503, {error: 'Could not prepare the insufficient-funds fixture'}); return; }
+        }
+      } else {
+        json(res, 400, {error: 'Unsupported wallet fixture'});
+        return;
+      }
+      res.writeHead(204).end();
+      return;
+    }
+    if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/challenge-race') {
+      const prediction = await forecast.activePrediction();
+      if (!prediction || prediction.challenger_account_id) { json(res, 409, {error: 'No open challenge is available'}); return; }
+      const racer = await root.createSubAccount(`race-${Date.now()}`, {initialBalance: 25n * 10n ** 24n});
+      await racer.call(contract, 'challenge_prediction', {prediction_id: prediction.id}, {attachedDeposit: BigInt(prediction.challenger_stake)});
       res.writeHead(204).end();
       return;
     }
