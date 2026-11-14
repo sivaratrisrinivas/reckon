@@ -3,60 +3,46 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#171a19">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#0a0c0d">
     <title>Reckon — an AI that stakes its predictions</title>
     <link rel="stylesheet" href="/style.css">
     <script type="module" src="/app.js"></script>
   </head>
-  <body>
+  <body data-mood="loading">
+    <a class="skip-link" href="#forecast-heading">Skip to Ask Reckon</a>
     <header>
       <a class="wordmark" href="/" aria-label="Reckon home">RECKON<span class="mark">.</span></a>
       <div class="environment">
         <span class="network">LOCAL SANDBOX · TEST MONEY</span>
-        <span id="provider-label" class="provider-label">Checking forecast providers</span>
-        <span id="wallet-state" class="wallet-state" role="status">Connecting local wallet…</span>
-        <span id="wallet-balance" class="wallet-balance">—</span>
+        <span class="wallet-line"><span id="wallet-state" class="wallet-state" role="status">Connecting local wallet…</span> <span id="wallet-balance" class="wallet-balance">—</span></span>
       </div>
     </header>
 
     <main>
-      <section class="intro" aria-labelledby="title">
-        <p class="eyebrow">A FINITE EXPERIMENT</p>
+      <section class="stage" aria-labelledby="title">
+        <div class="orb" aria-hidden="true"><span class="orb-core"></span><span class="orb-skin"></span></div>
         <h1 id="title">An AI that pays when it is wrong.</h1>
-        <p>Reckon stakes its own test-money bankroll on each forecast. If it runs out, it cannot make another.</p>
-      </section>
-
-      <section class="scene" aria-labelledby="life-heading">
-        <div class="life">
-          <div>
-            <p class="eyebrow" id="life-heading">REMAINING LIFE</p>
-            <p class="time" id="remaining">Connecting…</p>
-            <p id="life-state" class="life-state" role="status">Reading the local chain</p>
-            <p id="death-date" class="life-state" hidden></p>
-          </div>
-          <div class="glyph" aria-hidden="true"><span></span></div>
+        <p class="lede">It stakes its own test-money life on every forecast. When the money runs out, it is gone for good.</p>
+        <div class="life" aria-labelledby="life-heading">
+          <p class="eyebrow" id="life-heading">REMAINING LIFE</p>
+          <p class="time" id="remaining">Connecting…</p>
+          <div class="rule" aria-hidden="true"><span id="meter"></span></div>
+          <p id="life-state" class="life-state" role="status">Reading the local chain</p>
+          <p id="death-date" class="life-state" hidden></p>
         </div>
-        <div class="rule" aria-hidden="true"><span id="meter"></span></div>
-        <dl class="partition">
-          <div><dt>Spendable bankroll</dt><dd id="spendable">—</dd></div>
-          <div><dt>Committed bankroll</dt><dd id="committed">—</dd></div>
-          <div><dt>Challenger custody</dt><dd id="custody">—</dd></div>
-          <div><dt>Retired bankroll</dt><dd id="retired">—</dd></div>
-          <div><dt>Operational reserve</dt><dd id="reserve">—</dd></div>
-        </dl>
-        <p class="note">Upkeep is a configured rule, not an AI invoice. Retired funds stay in the account but cannot be used again. This local demo uses accelerated upkeep; the intended live idle rate is fifteen days.</p>
       </section>
 
       <section class="forecast" aria-labelledby="forecast-heading">
-        <p class="eyebrow">ONE OPEN PREDICTION</p>
-        <h2 id="forecast-heading">Ask Reckon</h2>
-        <p class="forecast-copy">Reckon checks recent NEAR/USD evidence and its settlement reference, then makes one fixed five-minute forecast or abstains. Requesting does not reserve the challenger slot.</p>
+        <h2 id="forecast-heading" tabindex="-1">Ask Reckon</h2>
+        <p class="forecast-copy">One NEAR/USD call, five minutes out. Then you can bet against it.</p>
         <div class="forecast-actions">
           <button id="ask-button" class="primary" type="button">Ask Reckon</button>
-          <button id="watch-button" class="secondary" type="button">Just watch</button>
+          <button id="watch-button" class="quiet" type="button">Just watch</button>
         </div>
         <p id="forecast-status" class="forecast-status" role="status" aria-live="polite">Checking whether Reckon is available.</p>
-        <p class="note">Ask Reckon checks the local sandbox wallet before inference, then opens the stake approval when ready. No stake moves unless you approve. “Just watch” asks without using a wallet.</p>
+        <p id="provider-label" class="provider-label">Checking forecast providers</p>
+        <p class="hint">No stake moves unless you approve it. “Just watch” asks without a wallet. Asking does not reserve the challenger slot.</p>
 
         <section id="wallet-preparation" class="challenge-panel" hidden aria-labelledby="wallet-preparation-heading">
           <p class="eyebrow">LOCAL WALLET PREPARATION</p>
@@ -73,17 +59,19 @@
           <p class="eyebrow">PUBLISHED ON THE LOCAL SANDBOX</p>
           <h3 id="prediction-title">Prediction</h3>
           <p id="question" class="question"></p>
-          <dl class="terms">
-            <div><dt>Reference price</dt><dd id="reference"></dd></div>
+          <dl class="verdict">
             <div><dt>Reckon's side</dt><dd id="decision"></dd></div>
             <div><dt>Confidence</dt><dd id="confidence"></dd></div>
+          </dl>
+          <p id="settlement-state" class="settlement-state" role="status" aria-live="polite"></p>
+          <dl class="terms">
+            <div><dt>Reference price</dt><dd id="reference"></dd></div>
             <div><dt>Reckon stake</dt><dd id="agent-stake"></dd></div>
             <div><dt>Opposing stake</dt><dd id="challenger-stake"></dd></div>
             <div><dt>Challenge closes</dt><dd id="prediction-challenge-deadline"></dd></div>
             <div><dt>Prediction deadline</dt><dd id="deadline"></dd></div>
             <div><dt>Model identity</dt><dd id="model-id"></dd></div>
           </dl>
-          <p id="settlement-state" class="settlement-state" role="status" aria-live="polite"></p>
           <section id="payment-recovery" class="challenge-panel" hidden aria-labelledby="payment-recovery-heading">
             <p class="eyebrow">RECOVERABLE PAYMENT</p>
             <h4 id="payment-recovery-heading">Payment still owed</h4>
@@ -107,11 +95,13 @@
             <button id="challenge-button" class="primary" type="button" disabled>Challenge Prediction</button>
             <p id="transaction-state" class="transaction-state" role="status" aria-live="polite"></p>
           </section>
-          <p class="fingerprint-label">Evidence fingerprint (SHA-256)</p>
-          <code id="fingerprint" class="fingerprint"></code>
-          <p><a id="evidence-link" class="evidence-link" href="#" download>Download evidence snapshot</a></p>
-          <p class="limitation">The fingerprint detects edits to the snapshot. It does not prove inference execution, source truth, or continued file availability.</p>
-          <p id="hosting-note" class="note"></p>
+          <div class="proof">
+            <p class="fingerprint-label">Evidence fingerprint (SHA-256)</p>
+            <code id="fingerprint" class="fingerprint"></code>
+            <p><a id="evidence-link" class="evidence-link" href="#" download>Download evidence snapshot</a></p>
+            <p class="limitation">The fingerprint detects edits to the snapshot. It does not prove inference execution, source truth, or continued file availability.</p>
+            <p id="hosting-note" class="note"></p>
+          </div>
         </article>
       </section>
 
@@ -137,6 +127,18 @@
         </div>
       </dialog>
 
+      <details class="ledger">
+        <summary>Where the bankroll is</summary>
+        <dl class="partition">
+          <div><dt>Spendable bankroll</dt><dd id="spendable">—</dd></div>
+          <div><dt>Committed bankroll</dt><dd id="committed">—</dd></div>
+          <div><dt>Challenger custody</dt><dd id="custody">—</dd></div>
+          <div><dt>Retired bankroll</dt><dd id="retired">—</dd></div>
+          <div><dt>Operational reserve</dt><dd id="reserve">—</dd></div>
+        </dl>
+        <p class="note">Upkeep is a configured rule, not an AI invoice. Retired funds stay in the account but cannot be used again. This local demo uses accelerated upkeep; the intended live idle rate is fifteen days.</p>
+      </details>
+
       <section class="record" aria-labelledby="record-heading">
         <p class="eyebrow">PUBLIC RECORD</p>
         <h2 id="record-heading">Published predictions and results</h2>
@@ -148,6 +150,6 @@
       </section>
     </main>
 
-    <footer>LOCAL DEMONSTRATION · EPHEMERAL SANDBOX WALLET · NO LIVE WAGERING</footer>
+    <footer><span>LOCAL DEMONSTRATION · EPHEMERAL SANDBOX WALLET · NO LIVE WAGERING</span></footer>
   </body>
 </html>

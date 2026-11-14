@@ -92,6 +92,7 @@ function showStatus(message, kind = '') {
   const status = $('forecast-status');
   status.textContent = message;
   status.dataset.kind = kind;
+  document.body.dataset.mood = kind || 'idle';
 }
 
 function setAvailableAction() {
@@ -112,7 +113,9 @@ function renderPrediction(prediction, modelId) {
   currentPrediction = prediction;
   $('ask-button').hidden = !prediction.outcome || agentIsDead;
   $('watch-button').hidden = !prediction.outcome || agentIsDead;
+  const firstReveal = $('prediction').hidden;
   $('prediction').hidden = false;
+  if (firstReveal && currentPrediction && !prediction.outcome) revealPrediction();
   $('question').textContent = prediction.question;
   $('reference').textContent = price(prediction.reference_multiplier, prediction.reference_decimals);
   $('decision').textContent = prediction.decision.toUpperCase();
@@ -130,6 +133,12 @@ function renderPrediction(prediction, modelId) {
     : 'Public evidence is stored in Vercel Blob without automatic expiry. Exhausting the free allowance can pause access for up to thirty days. The on-chain URL and fingerprint remain readable if this application is offline.';
   renderSettlementState(prediction);
   renderChallengeOffer();
+}
+
+// The reveal is the payoff: bring a newly published prediction to the reader's attention once.
+function revealPrediction() {
+  const calm = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  globalThis.requestAnimationFrame?.(() => $('prediction').scrollIntoView({behavior: calm ? 'auto' : 'smooth', block: 'start'}));
 }
 
 function renderSettlementState(prediction) {
@@ -667,7 +676,11 @@ async function refreshLife() {
     $('retired').textContent = near(life.retired_bankroll);
     $('reserve').textContent = near(life.operational_reserve);
     const percentage = Number(BigInt(life.remaining_life_ns) * 10_000n / BigInt(life.idle_life_ns)) / 100;
-    $('meter').style.width = `${Math.max(0, Math.min(100, percentage))}%`;
+    const share = Math.max(0, Math.min(100, percentage));
+    $('meter').style.width = `${share}%`;
+    // The orb is the agent's life: it shrinks with remaining life and goes still at death.
+    document.body.style.setProperty('--life', String(share / 100));
+    document.body.dataset.alive = String(!life.dead);
     renderChallengeOffer();
     if (agentIsDead) setAvailableAction();
   } catch {
