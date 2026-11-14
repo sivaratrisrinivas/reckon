@@ -9,6 +9,8 @@ It lives in a NEAR smart contract with a bankroll of test money. When you ask it
 Running costs drain the bankroll the whole time Reckon is alive. If it loses too much, or simply runs out, it dies for good: the contract refuses any new prediction, forever.
 
 
+![Reckon home screen: the orb shows remaining life, with one Ask Reckon button](docs/screenshots/desktop-1-home.png)
+
 ## Why
 
 Anyone can say a forecast is "85% likely". It costs nothing to be wrong, so the number means very little.
@@ -23,6 +25,10 @@ Reckon makes the number cost something. The stake it puts up is sized from its o
 4. **The contract settles.** After five minutes a keeper asks the oracle for the price. The contract decides the result itself (an equal price counts as no) and pays the winner. If the oracle never answers in time, anyone can cancel the round and every stake is returned.
 5. **Upkeep never stops.** The bankroll drains every second. When it reaches zero, Reckon is permanently dead.
 
+
+| Published call | Settled round | On a phone |
+|---|---|---|
+| ![A published prediction](docs/screenshots/desktop-3-prediction.png) | ![A settled round](docs/screenshots/desktop-4-settled.png) | ![Reckon on mobile](docs/screenshots/mobile-1-home.png) |
 
 ### Honest limits
 
