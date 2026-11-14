@@ -1,3 +1,9 @@
+# Update 2026-11-15 01:37 IST (GS-T71)
+
+- `npm run measure:experience` ran to completion (1 passed, 1.0 min): `docs/evidence/accessibility-performance.json` now exists. Emulated only (Chromium headless shell 158 on a Linux x86-64 Xeon host; mobile 390x844 at 4x CPU throttling, laptop profile). All targets met in emulation: frame time (0 missed frames on both), worst feedback 9.2 ms mobile and 10.8 ms laptop against 100 ms, layout shift under 0.1 over the measured journey, core JS 21.5 KB gzip / 18.6 KB brotli (target 200), CSS 3.7 KB gzip (target 30), no fonts, whole mobile journey 171,862 bytes transferred over 55 requests (uncompressed loopback). Not a real-device result; see the file's `limitations`.
+- State suite: the audit's layout-shift baseline now waits for the sweep's own shifts to settle (8d01087). Remaining failures: phone challenge-open shift 0.128, and the two payment-recovery tests (also fail alone).
+- No real screen reader has been run.
+
 # Issue 10 status: accessible, responsive 2D experience
 
 Written when work stopped on the shared usage limit. Branch `worktree-agent-a070ba34563417247`. This file is the source of truth for what is verified. `docs/accessibility-and-performance.md` describes the intended checks and was written before the last test run, so treat its matrix as the design of the checks, not as results.

@@ -1,0 +1,754 @@
+{
+  "measurement_kind": "emulated measurement, not a real-device result",
+  "real_device_results": false,
+  "generated_at": "2026-11-14T20:05:48.333Z",
+  "environment": {
+    "browser": "Chromium headless shell 158.0.8127.18 (Playwright)",
+    "host_os": "Linux 6.12.113+ (x64)",
+    "host_cpu": "Intel(R) Xeon(R) Processor x8",
+    "node": "v26.13.0",
+    "server": "local service serving fixture providers over loopback, assets uncompressed"
+  },
+  "targets": {
+    "coreJsKb": 200,
+    "coreCssKb": 30,
+    "fontsKb": 100,
+    "feedbackMs": 100,
+    "layoutShift": 0.1,
+    "maximumMissedFrameShare": 0.05
+  },
+  "pass_criteria": {
+    "frames": "at least 95% of active frames within 25 ms (missed frame = interval over 25 ms) and p95 under 18.5 ms",
+    "feedback": "every pressed control shows a visible acknowledgement in the next frame within 100 ms",
+    "layout_shift": "cumulative layout shift over the whole journey, counting shifts after input as well"
+  },
+  "assets": {
+    "core_js": {
+      "raw_bytes": 56062,
+      "gzip_bytes": 21512,
+      "brotli_bytes": 18582,
+      "wallet_crypto_share_of_minified_bytes": 28419
+    },
+    "core_css": {
+      "raw_bytes": 13677,
+      "gzip_bytes": 3722,
+      "brotli_bytes": 3106
+    },
+    "html_document": {
+      "raw_bytes": 10618,
+      "gzip_bytes": 3021,
+      "brotli_bytes": 2341
+    },
+    "fonts": {
+      "raw_bytes": 0,
+      "gzip_bytes": 0,
+      "brotli_bytes": 0,
+      "note": "No web font files ship. The page uses the system UI font stack."
+    },
+    "lazy_wallet_chunk": {
+      "raw_bytes": 0,
+      "note": "Wallet signing code is part of the core bundle; there is no separately loaded wallet chunk."
+    },
+    "optional_graphics": {
+      "raw_bytes": 0,
+      "note": "No optional 3D or WebGL asset exists."
+    }
+  },
+  "profiles": [
+    {
+      "profile": {
+        "id": "mobile",
+        "description": "Emulated mid-range mobile: 390x844 CSS px, device scale factor 3, touch, mobile viewport, 4x CPU throttling",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "device_scale_factor": 3,
+        "touch": true,
+        "cpu_throttling_rate": 4
+      },
+      "first_usable_scene_ms": 360,
+      "navigation_timing": {
+        "dom_content_loaded_ms": 207.30000000074506,
+        "load_event_ms": 207.30000000074506
+      },
+      "paint_ms": {
+        "first-paint": 188,
+        "first-contentful-paint": 188,
+        "largest-contentful-paint": 188
+      },
+      "transferred_initial_load": {
+        "total_bytes": 92394,
+        "by_resource_type": {
+          "Document": 10835,
+          "Stylesheet": 13893,
+          "Script": 56285,
+          "Fetch": 11381
+        },
+        "requests": 12
+      },
+      "transferred_whole_journey": {
+        "total_bytes": 171862,
+        "by_resource_type": {
+          "Document": 10835,
+          "Stylesheet": 13893,
+          "Script": 56285,
+          "Fetch": 90849
+        },
+        "requests": 55
+      },
+      "active_frames_overall": {
+        "frames": 840,
+        "mean_ms": 16.86,
+        "p50_ms": 16.7,
+        "p95_ms": 16.8,
+        "p99_ms": 16.8,
+        "max_ms": 116.8,
+        "frames_over_on_time_threshold": 2,
+        "missed_frames": 2,
+        "skipped_display_refreshes": 10,
+        "mean_fps": 59.3
+      },
+      "active_frame_windows": [
+        {
+          "window": "request-to-approval",
+          "frames": 112,
+          "mean_ms": 17.56,
+          "p50_ms": 16.7,
+          "p95_ms": 16.8,
+          "p99_ms": 16.8,
+          "max_ms": 116.8,
+          "frames_over_on_time_threshold": 1,
+          "missed_frames": 1,
+          "skipped_display_refreshes": 6,
+          "mean_fps": 56.95
+        },
+        {
+          "window": "approval-to-accepted",
+          "frames": 142,
+          "mean_ms": 16.67,
+          "p50_ms": 16.7,
+          "p95_ms": 16.8,
+          "p99_ms": 16.8,
+          "max_ms": 16.8,
+          "frames_over_on_time_threshold": 0,
+          "missed_frames": 0,
+          "skipped_display_refreshes": 0,
+          "mean_fps": 60
+        },
+        {
+          "window": "waiting-to-result",
+          "frames": 439,
+          "mean_ms": 16.82,
+          "p50_ms": 16.7,
+          "p95_ms": 16.8,
+          "p99_ms": 16.8,
+          "max_ms": 83.3,
+          "frames_over_on_time_threshold": 1,
+          "missed_frames": 1,
+          "skipped_display_refreshes": 4,
+          "mean_fps": 59.46
+        },
+        {
+          "window": "scroll-whole-page",
+          "frames": 147,
+          "mean_ms": 16.67,
+          "p50_ms": 16.7,
+          "p95_ms": 16.7,
+          "p99_ms": 16.8,
+          "max_ms": 16.8,
+          "frames_over_on_time_threshold": 0,
+          "missed_frames": 0,
+          "skipped_display_refreshes": 0,
+          "mean_fps": 60
+        }
+      ],
+      "local_feedback_ms": {
+        "Ask Reckon": 9.2,
+        "Approve stake in local wallet": 6.4
+      },
+      "quiet_window_3s": {
+        "description": "Browser work counters over 3 s with nothing changing, no animation frame probe running",
+        "LayoutCount": 2,
+        "RecalcStyleCount": 11,
+        "TaskDuration": 0.05,
+        "ScriptDuration": 0.01
+      },
+      "layout_shift": {
+        "cumulative_total": 0.06711,
+        "cumulative_without_recent_input": 0.046266,
+        "entries": 4,
+        "before_first_usable_scene": 0.008408
+      },
+      "event_timing_over_16ms": [
+        {
+          "name": "pointerover",
+          "duration": 168
+        },
+        {
+          "name": "pointerenter",
+          "duration": 168
+        },
+        {
+          "name": "pointerenter",
+          "duration": 168
+        },
+        {
+          "name": "pointerenter",
+          "duration": 168
+        },
+        {
+          "name": "pointerenter",
+          "duration": 168
+        },
+        {
+          "name": "mouseover",
+          "duration": 168
+        },
+        {
+          "name": "pointerout",
+          "duration": 24
+        },
+        {
+          "name": "pointerleave",
+          "duration": 24
+        },
+        {
+          "name": "pointerover",
+          "duration": 24
+        },
+        {
+          "name": "pointerenter",
+          "duration": 24
+        },
+        {
+          "name": "pointerenter",
+          "duration": 24
+        },
+        {
+          "name": "pointerenter",
+          "duration": 24
+        },
+        {
+          "name": "pointerenter",
+          "duration": 24
+        },
+        {
+          "name": "mouseout",
+          "duration": 24
+        },
+        {
+          "name": "mouseover",
+          "duration": 24
+        },
+        {
+          "name": "pointerdown",
+          "duration": 24
+        },
+        {
+          "name": "mousedown",
+          "duration": 24
+        },
+        {
+          "name": "pointerup",
+          "duration": 24
+        },
+        {
+          "name": "mouseup",
+          "duration": 24
+        },
+        {
+          "name": "click",
+          "duration": 24
+        },
+        {
+          "name": "pointerover",
+          "duration": 24
+        },
+        {
+          "name": "pointerleave",
+          "duration": 32
+        },
+        {
+          "name": "pointerover",
+          "duration": 32
+        },
+        {
+          "name": "mouseout",
+          "duration": 32
+        },
+        {
+          "name": "mouseover",
+          "duration": 32
+        },
+        {
+          "name": "pointerout",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerover",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "mouseout",
+          "duration": 16
+        },
+        {
+          "name": "mouseover",
+          "duration": 16
+        },
+        {
+          "name": "pointerout",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerover",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "mouseout",
+          "duration": 16
+        },
+        {
+          "name": "mouseover",
+          "duration": 16
+        },
+        {
+          "name": "pointerdown",
+          "duration": 16
+        },
+        {
+          "name": "mousedown",
+          "duration": 16
+        },
+        {
+          "name": "pointerup",
+          "duration": 16
+        },
+        {
+          "name": "mouseup",
+          "duration": 16
+        },
+        {
+          "name": "click",
+          "duration": 16
+        },
+        {
+          "name": "pointerover",
+          "duration": 16
+        },
+        {
+          "name": "pointerup",
+          "duration": 16
+        },
+        {
+          "name": "lostpointercapture",
+          "duration": 16
+        },
+        {
+          "name": "pointerout",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "touchend",
+          "duration": 16
+        }
+      ],
+      "long_animation_frames": [
+        {
+          "duration": 150.6000000005588,
+          "blocking": 50.2
+        },
+        {
+          "duration": 73.29999999981374,
+          "blocking": 16.5
+        },
+        {
+          "duration": 107,
+          "blocking": 54.3
+        },
+        {
+          "duration": 99.5,
+          "blocking": 0
+        }
+      ]
+    },
+    {
+      "profile": {
+        "id": "laptop",
+        "description": "Emulated integrated-graphics laptop: 1440x900 CSS px, device scale factor 1, no CPU throttling",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "device_scale_factor": 1,
+        "touch": false,
+        "cpu_throttling_rate": 1
+      },
+      "first_usable_scene_ms": 109,
+      "navigation_timing": {
+        "dom_content_loaded_ms": 47,
+        "load_event_ms": 47.09999999962747
+      },
+      "paint_ms": {
+        "first-paint": 52,
+        "first-contentful-paint": 52,
+        "largest-contentful-paint": 52
+      },
+      "transferred_initial_load": {
+        "total_bytes": 93926,
+        "by_resource_type": {
+          "Document": 10835,
+          "Stylesheet": 13893,
+          "Script": 56285,
+          "Fetch": 12913
+        },
+        "requests": 13
+      },
+      "transferred_whole_journey": {
+        "total_bytes": 193320,
+        "by_resource_type": {
+          "Document": 10835,
+          "Stylesheet": 13893,
+          "Script": 56285,
+          "Fetch": 112307
+        },
+        "requests": 64
+      },
+      "active_frames_overall": {
+        "frames": 1339,
+        "mean_ms": 13.6,
+        "p50_ms": 16.7,
+        "p95_ms": 16.7,
+        "p99_ms": 16.8,
+        "max_ms": 16.8,
+        "frames_over_on_time_threshold": 0,
+        "missed_frames": 0,
+        "skipped_display_refreshes": 0,
+        "mean_fps": 73.51
+      },
+      "active_frame_windows": [
+        {
+          "window": "request-to-approval",
+          "frames": 112,
+          "mean_ms": 16.67,
+          "p50_ms": 16.7,
+          "p95_ms": 16.7,
+          "p99_ms": 16.8,
+          "max_ms": 16.8,
+          "frames_over_on_time_threshold": 0,
+          "missed_frames": 0,
+          "skipped_display_refreshes": 0,
+          "mean_fps": 60
+        },
+        {
+          "window": "approval-to-accepted",
+          "frames": 341,
+          "mean_ms": 8.31,
+          "p50_ms": 0,
+          "p95_ms": 16.7,
+          "p99_ms": 16.8,
+          "max_ms": 16.8,
+          "frames_over_on_time_threshold": 0,
+          "missed_frames": 0,
+          "skipped_display_refreshes": 0,
+          "mean_fps": 120.36
+        },
+        {
+          "window": "waiting-to-result",
+          "frames": 737,
+          "mean_ms": 16.67,
+          "p50_ms": 16.7,
+          "p95_ms": 16.8,
+          "p99_ms": 16.8,
+          "max_ms": 16.8,
+          "frames_over_on_time_threshold": 0,
+          "missed_frames": 0,
+          "skipped_display_refreshes": 0,
+          "mean_fps": 60
+        },
+        {
+          "window": "scroll-whole-page",
+          "frames": 149,
+          "mean_ms": 8.28,
+          "p50_ms": 0,
+          "p95_ms": 16.7,
+          "p99_ms": 16.8,
+          "max_ms": 16.8,
+          "frames_over_on_time_threshold": 0,
+          "missed_frames": 0,
+          "skipped_display_refreshes": 0,
+          "mean_fps": 120.81
+        }
+      ],
+      "local_feedback_ms": {
+        "Ask Reckon": 9.4,
+        "Approve stake in local wallet": 10.8
+      },
+      "quiet_window_3s": {
+        "description": "Browser work counters over 3 s with nothing changing, no animation frame probe running",
+        "LayoutCount": 2,
+        "RecalcStyleCount": 11,
+        "TaskDuration": 0.01,
+        "ScriptDuration": 0
+      },
+      "layout_shift": {
+        "cumulative_total": 0.0026899999999999997,
+        "cumulative_without_recent_input": 0.002395,
+        "entries": 3,
+        "before_first_usable_scene": 0.002395
+      },
+      "event_timing_over_16ms": [
+        {
+          "name": "pointerout",
+          "duration": 16
+        },
+        {
+          "name": "pointerover",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "mouseout",
+          "duration": 16
+        },
+        {
+          "name": "mouseover",
+          "duration": 16
+        },
+        {
+          "name": "pointerdown",
+          "duration": 16
+        },
+        {
+          "name": "mousedown",
+          "duration": 16
+        },
+        {
+          "name": "pointerup",
+          "duration": 16
+        },
+        {
+          "name": "mouseup",
+          "duration": 16
+        },
+        {
+          "name": "click",
+          "duration": 16
+        },
+        {
+          "name": "pointerover",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerover",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "mouseout",
+          "duration": 16
+        },
+        {
+          "name": "mouseover",
+          "duration": 16
+        },
+        {
+          "name": "pointerout",
+          "duration": 16
+        },
+        {
+          "name": "pointerleave",
+          "duration": 16
+        },
+        {
+          "name": "pointerover",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "pointerenter",
+          "duration": 16
+        },
+        {
+          "name": "mouseout",
+          "duration": 16
+        },
+        {
+          "name": "mouseover",
+          "duration": 16
+        },
+        {
+          "name": "pointerdown",
+          "duration": 16
+        },
+        {
+          "name": "mousedown",
+          "duration": 16
+        },
+        {
+          "name": "pointerup",
+          "duration": 16
+        },
+        {
+          "name": "mouseup",
+          "duration": 16
+        },
+        {
+          "name": "click",
+          "duration": 16
+        },
+        {
+          "name": "pointerover",
+          "duration": 16
+        }
+      ],
+      "long_animation_frames": []
+    }
+  ],
+  "limitations": [
+    "Emulated profiles on one development host, not a real mid-range phone: CPU throttling slows JavaScript and layout but does not reproduce a phone GPU, memory pressure, thermal limits or touch hardware.",
+    "The headless shell composites in software with no display, so frame intervals come from requestAnimationFrame and are not presented frames on a screen.",
+    "Network is loopback with uncompressed responses; transfer sizes are as served locally. Gzip and brotli figures are computed offline from the same bytes.",
+    "Provider inputs are scripted fixtures and the chain is a local sandbox, so inference, oracle and RPC latency are not representative of testnet.",
+    "The journey covers one funded-wallet round on each profile; other states are covered functionally by the state suite, not measured for frame time."
+  ],
+  "target_results": {
+    "profiles": [
+      {
+        "profile": "mobile",
+        "frame_time_target_met": true,
+        "missed_frame_share": 0,
+        "feedback_target_met": true,
+        "worst_feedback_ms": 9.2,
+        "layout_shift_target_met": true
+      },
+      {
+        "profile": "laptop",
+        "frame_time_target_met": true,
+        "missed_frame_share": 0,
+        "feedback_target_met": true,
+        "worst_feedback_ms": 10.8,
+        "layout_shift_target_met": true
+      }
+    ],
+    "bytes": {
+      "core_js_target_met": true,
+      "core_css_target_met": true,
+      "fonts_target_met": true
+    }
+  }
+}
