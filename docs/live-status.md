@@ -1,6 +1,6 @@
 # Live testnet status (rehearsal account), 15 November 2026 IST
 
-Status: the production contract is deployed and initialized on testnet and its restricted keys are in place, but no prediction has been published. Both paid attempts to refresh the oracle reference failed, so the live round has not run. Machine-readable record: `docs/evidence/live-testnet-rehearsal-2026-11-14.json`.
+Status (15 November 2026, round 4): one complete live round has run on NEAR testnet. Reckon published a prediction with its restricted key, the challenger account took the other side, the keeper requested settlement, `price-oracle.testnet` answered in 19.6 seconds, and the contract resolved the round on-chain (outcome NO, the agent won). Machine-readable record: `docs/evidence/live-testnet-round4-2026-11-15.json`. The earlier history follows. Original status before round 3: the production contract is deployed and initialized on testnet and its restricted keys are in place, but no prediction has been published. Both paid attempts to refresh the oracle reference failed, so the live round has not run. Machine-readable record: `docs/evidence/live-testnet-rehearsal-2026-11-14.json`.
 
 Accounts: agent `reckon-srinivas-test-2026.testnet`; challenger and keeper `challenger.reckon-srinivas-test-2026.testnet`. The agent still holds its full-access key (rehearsal account, final lock not approved, nothing deleted).
 
@@ -46,6 +46,32 @@ Totals after round 3: paid oracle calls 3 of 4, model calls 1 of 6, lost to the 
 
 Finding: a live round can spend a paid refresh and then publish nothing if the model's confidence falls outside 10% to 90%. Calling the model before paying for the refresh (it needs only the candles), or prompting it within the range, would avoid that cost; neither is implemented.
 
+## Round 4: one complete live round (15 November 2026)
+
+Approved by the captain at 03:16 IST ("prove that the loop works with real stakes on a live network", caps removed at 03:17 IST). Run from the captain's machine with `scripts/live/round.ts` at commit `1f593dd` (the confidence re-ask fix); keys never left that machine, and every log and the evidence file were secret-scanned before reading or copying. Times are UTC on 14 November (IST is 5:30 ahead).
+
+Before the round, 0.5 NEAR was moved from the agent account to the challenger so the keeper's 240 Tgas settlement prepay could never fall short. This is a transfer between the two test accounts, not a spend; it cost 0.0000446 NEAR in gas and left the agent's recorded claims fully covered.
+
+| Attempt | Action | Transaction | Result | Cost (NEAR) |
+| --- | --- | --- | --- | --- |
+| top-up | agent -> challenger, 0.5 NEAR | `FAcGbwp8RcL9LAQPM4xFaUYS8EC373GYu4WqaLTKtEy3` | ok | 0.0000446 gas |
+| 4-1 | paid refresh | `6Fevjx2PSmc1azj4MkmPaF8C7kjdGvAZpkpVBd6sZAq1` | worker `Failed` ("OutLayer execution failed - received None"), reference null, stopped | 0.0021589 |
+| 4-2 | paid refresh | `4X4gu14VSbQqo6kin6b3CCWiUDnfMyhYME9eGR7Y9JxR` | worker `Failed` again, stopped | 0.0021591 |
+| 4-3 | paid refresh | `CrHpFeZ4fTi8vpYLUMjzD3aQKhJKN3XYrfXmvU79KCKQ` | reference 2.94986666 USD; model answer failed validation (invalid shape or justification over 1,000 characters), nothing published | 0.0027275 |
+| 4-4 | refresh | `CCyHFhdjZWEQchiGF6KVAkjFj28xgu4QBAuB6PEYPtT5` | reference refreshed; same model validation failure, nothing published | 0.0002470 |
+| 4-5 | refresh | `AmywAfSR3jzo8nocKVM2AWFzxhfMXq86JBqk1AFz3QDM` | reference refreshed | 0.0002470 |
+| 4-5 | `publish_prediction` (restricted key) | `HU8dbAiZK1SqMsa4egqzfRgToWLJRLHCruawvWJ2k7nv` | prediction 1: NO at 85.0000%, agent stake 0.0198036, challenger stake 0.0034948; model `Qwen/Qwen3-VL-30B-A3B-Instruct` | 0.0002201 gas |
+| 4-5 | `challenge_prediction` (challenger) | `74isg5FXLbhFKEKkhwwKEnotXHe4dedXuVtRus1SwpMo` | accepted 7 s into the 30 s window | 0.0002217 gas plus the 0.0034948 stake |
+| 4-5 | `request_settlement` (keeper key) | `HRzLZB74rkfFYBPAXdKQRgaYKEPN4CZqTUUn24q7vEcx` | oracle callback after 19.6 s: settlement 2.93288333 USD, not above 2.94986666, outcome NO | 0.0016933 gas; about 0.00145 net oracle fee from the agent's 0.02 deposit |
+
+Evidence snapshot (hash recorded on-chain): https://hl93vivkapaqgdrp.public.blob.vercel-storage.com/evidence/de08a2f3b43fee5ee98e6ae09c1f787df9650f0451e5f21a59c809c4658ab118.json (SHA-256 verified after download).
+
+Outcome: the agent won. The challenger's stake moved into the agent's bankroll inside the contract, so no outgoing transfer was needed (`payment: null`). The round script's three balance checks all passed: the challenger lost exactly its stake plus gas; committed bankroll and custody returned to zero and spendable plus retired bankroll grew by exactly both stakes; and the agent account balance (8.9908769 NEAR) covers every recorded claim (6.0034948 NEAR) with 2.9873821 NEAR to spare.
+
+Totals for round 4: 0.0111667 NEAR spent across both accounts (combined balance 9.9632073 before the top-up, 9.9520406 after), covering five refresh attempts, three model calls, publication, the challenge and settlement. No void, no retry, nothing in flight. Balances after: agent 8.9908769 NEAR, challenger 0.9611637 NEAR.
+
+What this proves and what it does not: the full loop (publish with the restricted key, a real challenger wager, oracle settlement, on-chain resolution and bankroll accounting) works on testnet. It is one round with test money. A challenger win (an outgoing payout) and a void refund have not happened live; they are covered only by the sandbox tests. The confidence re-ask was not exercised live: the published answer (0.85) was in range first time. The two rejected model answers were a different failure (invalid shape or justification length), which the re-ask does not cover. The full-access key is still on the agent account (no lock).
+
 ## What failed and why
 
 1. Attempt 1 was my error: 100 Tgas is too little for `request_price_data`, because `outlayer.testnet` needs more gas to start the execution. The earlier diagnostics prepaid 250 Tgas. The failed receipt sent the deposit to the oracle, not back to the caller.
@@ -59,7 +85,7 @@ Finding: a live round can spend a paid refresh and then publish nothing if the m
 - `https://rpc.testnet.near.org` returns 429 with a deprecation warning under light use. `https://test.rpc.fastnear.com` worked throughout.
 - The keeper key must have an allowance above the largest prepaid gas (0.24 NEAR for settlement), so a small allowance silently disables it.
 
-## Remaining steps if the oracle recovers
+## Remaining steps if the oracle recovers (superseded by round 4)
 
 1. Cost of one more refresh: about 0.0022 NEAR if the worker fails again, about 0.0035 NEAR if it succeeds (0.02 deposit, 0.0013 charged). It would be paid call 3. Settlement would be call 4.
 2. Run `RECKON_TESTNET_RPC=https://test.rpc.fastnear.com RECKON_ORACLE_RPC=https://test.rpc.fastnear.com NODE_OPTIONS=--no-deprecation ./scripts/with-local-env.sh node --import tsx scripts/live/round.ts round <round-id>` from the repository root with the private `.env` linked. It refreshes the reference (250 Tgas), makes one live forecast (model call 1), publishes with the restricted key, challenges from the challenger within 30 seconds, requests settlement with the keeper key at the deadline, voids at the 120 second cutoff if needed, then checks the outcome and payout against balances. It stops before any further paid step if the refresh fails or the reference stays null. Its evidence file is written to `.local/runtime/live/round-<round-id>.json` (no secrets); review it and copy it to `docs/evidence/`.

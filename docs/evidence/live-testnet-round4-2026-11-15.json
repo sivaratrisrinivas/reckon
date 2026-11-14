@@ -1,0 +1,273 @@
+{
+  "round_id": "round4-5",
+  "network": "testnet",
+  "agent": "reckon-srinivas-test-2026.testnet",
+  "challenger": "challenger.reckon-srinivas-test-2026.testnet",
+  "forecast_status": "published",
+  "steps": [
+    {
+      "step": "balances",
+      "at": "2026-11-14T22:03:21.226Z",
+      "label": "start",
+      "agent": "8.989049484498702600000000 NEAR",
+      "challenger": "0.966820502760446400000000 NEAR"
+    },
+    {
+      "step": "reference-refresh-receipts",
+      "at": "2026-11-14T22:03:28.056Z",
+      "transaction": "AmywAfSR3jzo8nocKVM2AWFzxhfMXq86JBqk1AFz3QDM",
+      "failures": []
+    },
+    {
+      "step": "reference-refresh",
+      "at": "2026-11-14T22:03:28.216Z",
+      "transaction": "AmywAfSR3jzo8nocKVM2AWFzxhfMXq86JBqk1AFz3QDM",
+      "cache_after": {
+        "usd": "294986666e-8",
+        "timestamp": "1794693807360686688",
+        "recency": 300
+      }
+    },
+    {
+      "step": "balances",
+      "at": "2026-11-14T22:03:28.402Z",
+      "label": "after-reference-refresh",
+      "agent": "8.989049484498702600000000 NEAR",
+      "challenger": "0.966573457220127700000000 NEAR"
+    },
+    {
+      "step": "forecast",
+      "at": "2026-11-14T22:03:35.042Z",
+      "status": "published",
+      "elapsed_ms": 6638
+    },
+    {
+      "step": "published",
+      "at": "2026-11-14T22:03:35.043Z",
+      "id": "1",
+      "decision": "no",
+      "confidence_ppm": 850000,
+      "agent_stake": "19803613560441280864197",
+      "challenger_stake": "3494755334195520152505",
+      "evidence_url": "https://hl93vivkapaqgdrp.public.blob.vercel-storage.com/evidence/de08a2f3b43fee5ee98e6ae09c1f787df9650f0451e5f21a59c809c4658ab118.json",
+      "evidence_hash": "de08a2f3b43fee5ee98e6ae09c1f787df9650f0451e5f21a59c809c4658ab118",
+      "published_at_ns": "1794693815835532478",
+      "challenge_deadline_ns": "1794693845835532478",
+      "deadline_ns": "1794694115835532478",
+      "model_id": "Qwen/Qwen3-VL-30B-A3B-Instruct"
+    },
+    {
+      "step": "balances",
+      "at": "2026-11-14T22:03:35.233Z",
+      "label": "after-publication",
+      "agent": "8.938129753295057800000000 NEAR",
+      "challenger": "0.966573457220127700000000 NEAR"
+    },
+    {
+      "step": "challenge-window",
+      "at": "2026-11-14T22:03:35.561Z",
+      "remaining_ms": 29481
+    },
+    {
+      "step": "challenged",
+      "at": "2026-11-14T22:03:42.601Z",
+      "transaction": "74isg5FXLbhFKEKkhwwKEnotXHe4dedXuVtRus1SwpMo",
+      "challenger_account_id": "challenger.reckon-srinivas-test-2026.testnet",
+      "challenged_at_ns": "1794693819695188783"
+    },
+    {
+      "step": "balances",
+      "at": "2026-11-14T22:03:42.900Z",
+      "label": "after-challenge",
+      "agent": "8.992324171484086920152505 NEAR",
+      "challenger": "0.962856966781539779847495 NEAR"
+    },
+    {
+      "step": "settlement-request",
+      "at": "2026-11-14T22:08:53.666Z",
+      "transaction": "HRzLZB74rkfFYBPAXdKQRgaYKEPN4CZqTUUn24q7vEcx",
+      "succeeded": true,
+      "failure": null,
+      "gas_burnt_by_transaction_tree": "18271791134406"
+    },
+    {
+      "step": "settled",
+      "at": "2026-11-14T22:08:55.994Z",
+      "status": "resolved",
+      "outcome": "no",
+      "settlement_price": {
+        "multiplier": "293288333",
+        "decimals": 8,
+        "response_timestamp_ns": "1794694133513355482",
+        "provider_recency_seconds": 300
+      },
+      "settled_at_ns": "1794694134215339849",
+      "callback_after_request_ms": 19563,
+      "payment": null
+    },
+    {
+      "step": "balances",
+      "at": "2026-11-14T22:09:01.247Z",
+      "label": "end",
+      "agent": "8.990876871384086920152505 NEAR",
+      "challenger": "0.961163697205599179847495 NEAR"
+    },
+    {
+      "step": "verification",
+      "at": "2026-11-14T22:09:01.250Z",
+      "checks": [
+        {
+          "check": "agent won: challenger lost exactly the stake plus gas",
+          "ok": true,
+          "detail": "challenger balance delta -5409760014528520152505 yocto (0.005409760014528520152505 NEAR debit), expected -5409760014528520152505 yocto (0.005409760014528520152505 NEAR debit)"
+        },
+        {
+          "check": "agent won: commitment released and challenger stake added to usable bankroll",
+          "ok": true,
+          "detail": "spendable+retired after 1003494755334195520152505 expected 1003494755334195520152505; committed 0 custody 0"
+        },
+        {
+          "check": "agent account balance covers every recorded claim (spendable, committed, custody, pending, retired, reserve)",
+          "ok": true,
+          "detail": "balance 8990876871384086920152505 claims 6003494755334195520152505 surplus 2987382116049891400000000"
+        }
+      ]
+    }
+  ],
+  "costs": [
+    {
+      "label": "reference refresh (request_price_data, 0.02 NEAR attached)",
+      "hash": "AmywAfSR3jzo8nocKVM2AWFzxhfMXq86JBqk1AFz3QDM",
+      "signer": "challenger.reckon-srinivas-test-2026.testnet",
+      "tokens_burnt": "247045540318700000000",
+      "gas_burnt": "2916820528187"
+    },
+    {
+      "label": "challenge_prediction",
+      "hash": "74isg5FXLbhFKEKkhwwKEnotXHe4dedXuVtRus1SwpMo",
+      "signer": "challenger.reckon-srinivas-test-2026.testnet",
+      "tokens_burnt": "221735104392400000000",
+      "gas_burnt": "2440533606424"
+    },
+    {
+      "label": "request_settlement (keeper key; includes 0.02 NEAR oracle deposit taken from the agent)",
+      "hash": "HRzLZB74rkfFYBPAXdKQRgaYKEPN4CZqTUUn24q7vEcx",
+      "signer": "challenger.reckon-srinivas-test-2026.testnet",
+      "tokens_burnt": "1693269575940600000000",
+      "gas_burnt": "18494973696906"
+    }
+  ],
+  "balances": {
+    "start": {
+      "agent": "8989049484498702600000000",
+      "challenger": "966820502760446400000000"
+    },
+    "after-reference-refresh": {
+      "agent": "8989049484498702600000000",
+      "challenger": "966573457220127700000000"
+    },
+    "after-publication": {
+      "agent": "8938129753295057800000000",
+      "challenger": "966573457220127700000000"
+    },
+    "after-challenge": {
+      "agent": "8992324171484086920152505",
+      "challenger": "962856966781539779847495"
+    },
+    "end": {
+      "agent": "8990876871384086920152505",
+      "challenger": "961163697205599179847495"
+    }
+  },
+  "final_prediction": {
+    "id": "1",
+    "question": "Will the NEAR/USD settlement price be strictly above the reference price?",
+    "reference_multiplier": "294986666",
+    "reference_decimals": 8,
+    "decision": "no",
+    "confidence_ppm": 850000,
+    "agent_stake": "19803613560441280864197",
+    "challenger_stake": "3494755334195520152505",
+    "evidence_hash": "de08a2f3b43fee5ee98e6ae09c1f787df9650f0451e5f21a59c809c4658ab118",
+    "evidence_url": "https://hl93vivkapaqgdrp.public.blob.vercel-storage.com/evidence/de08a2f3b43fee5ee98e6ae09c1f787df9650f0451e5f21a59c809c4658ab118.json",
+    "published_at_ns": "1794693815835532478",
+    "challenge_deadline_ns": "1794693845835532478",
+    "deadline_ns": "1794694115835532478",
+    "challenger_account_id": "challenger.reckon-srinivas-test-2026.testnet",
+    "challenged_at_ns": "1794693819695188783",
+    "agent_stake_committed": false,
+    "settlement_status": "resolved",
+    "settlement_request_id": "reckon:reckon-srinivas-test-2026.testnet:1:1",
+    "settlement_requested_at_ns": "1794694119774174315",
+    "settlement_price": {
+      "multiplier": "293288333",
+      "decimals": 8,
+      "response_timestamp_ns": "1794694133513355482",
+      "provider_recency_seconds": 300
+    },
+    "outcome": "no",
+    "settled_at_ns": "1794694134215339849",
+    "payment": null
+  },
+  "life_start": {
+    "initial_bankroll": "1000000000000000000000000",
+    "spendable_bankroll": "990215251533729938271605",
+    "committed_bankroll": "0",
+    "challenger_custody": "0",
+    "retired_bankroll": "9784748466270061728395",
+    "operational_reserve": "5000000000000000000000000",
+    "pending_payment_liabilities": "0",
+    "remaining_life_ns": "1283318965987714",
+    "idle_life_ns": "1296000000000000",
+    "dead": false,
+    "death_at_ns": "0"
+  },
+  "life_after_challenge": {
+    "initial_bankroll": "1000000000000000000000000",
+    "spendable_bankroll": "970394450083897453703705",
+    "committed_bankroll": "19803613560441280864197",
+    "challenger_custody": "3494755334195520152505",
+    "retired_bankroll": "9801936355661265432098",
+    "operational_reserve": "5000000000000000000000000",
+    "pending_payment_liabilities": "0",
+    "remaining_life_ns": "1257631207308732",
+    "idle_life_ns": "1296000000000000",
+    "dead": false,
+    "death_at_ns": "0"
+  },
+  "life_final": {
+    "initial_bankroll": "1000000000000000000000000",
+    "spendable_bankroll": "993447398134565890522876",
+    "committed_bankroll": "0",
+    "challenger_custody": "0",
+    "retired_bankroll": "10047357199629629629629",
+    "operational_reserve": "5000000000000000000000000",
+    "pending_payment_liabilities": "0",
+    "remaining_life_ns": "1287507827982398",
+    "idle_life_ns": "1296000000000000",
+    "dead": false,
+    "death_at_ns": "0"
+  },
+  "prediction_summary": {
+    "published": "1",
+    "valid_outcomes": "1",
+    "correct_outcomes": "1"
+  },
+  "checks": [
+    {
+      "check": "agent won: challenger lost exactly the stake plus gas",
+      "ok": true,
+      "detail": "challenger balance delta -5409760014528520152505 yocto (0.005409760014528520152505 NEAR debit), expected -5409760014528520152505 yocto (0.005409760014528520152505 NEAR debit)"
+    },
+    {
+      "check": "agent won: commitment released and challenger stake added to usable bankroll",
+      "ok": true,
+      "detail": "spendable+retired after 1003494755334195520152505 expected 1003494755334195520152505; committed 0 custody 0"
+    },
+    {
+      "check": "agent account balance covers every recorded claim (spendable, committed, custody, pending, retired, reserve)",
+      "ok": true,
+      "detail": "balance 8990876871384086920152505 claims 6003494755334195520152505 surplus 2987382116049891400000000"
+    }
+  ]
+}
