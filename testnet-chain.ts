@@ -115,6 +115,19 @@ export class NearChain {
     };
   }
 
+  /** Spendable balance of any account: its amount less the NEAR its storage keeps locked. */
+  async availableBalance(accountId: string): Promise<bigint | null> {
+    try {
+      const view = await this.provider.query({request_type: 'view_account', finality: 'optimistic', account_id: accountId}) as unknown as {amount: string; storage_usage: number};
+      const locked = BigInt(view.storage_usage) * 10n ** 19n;
+      const amount = BigInt(view.amount);
+      return amount > locked ? amount - locked : 0n;
+    } catch (error) {
+      if (error instanceof Error && /does not exist|UnknownAccount/.test(`${error.name} ${error.message}`)) return null;
+      throw error;
+    }
+  }
+
   async optimisticBlockTimestampNs(): Promise<bigint> {
     const block = await this.provider.block({finality: 'optimistic'});
     return BigInt(block.header.timestamp_nanosec);
