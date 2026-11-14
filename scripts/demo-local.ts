@@ -21,7 +21,9 @@ const FAULT_WASM = 'contract/target/wasm32-unknown-unknown/release/reckon_contra
 const ORACLE_FIXTURE_WASM ='contract/target/wasm32-unknown-unknown/release/reckon_oracle_fixture.wasm';
 // 100 NEAR of play money lasts 2,400 simulated seconds of idle upkeep instead of fifteen days.
 const IDLE_LIFE_SECONDS = 2_400;
-const HARD_BUDGET_SECONDS = Number(process.env.RECKON_DEMO_BUDGET_SECONDS ?? 600);
+// The environment variable can only shorten the budget (used by the failure-path test), never extend it.
+const requestedBudget = Number(process.env.RECKON_DEMO_BUDGET_SECONDS ?? 600);
+const HARD_BUDGET_SECONDS = Number.isFinite(requestedBudget) && requestedBudget > 0 ? Math.min(600, requestedBudget) : 600;
 const SECONDS_BEFORE_DEATH_AT_PUBLICATION = 100;
 const ORACLE_REQUEST_DEPOSIT = NEAR / 50n;
 const PREDICTION_HORIZON_SECONDS = 300;

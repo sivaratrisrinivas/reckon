@@ -44,13 +44,32 @@ Add `-- --hold` to keep the finished simulation's UI open for inspection until y
 
 The command builds the browser bundle, starts the real service (`service.ts`) and a real archive-mode NEAR sandbox in a private temporary directory, deploys the compiled contract, a fixture oracle, a challenger wallet and a keeper, narrates five scenarios with actual transaction hashes and balances, then stops everything it started and removes its temporary directory.
 
-The hard time budget is 900 seconds (`RECKON_DEMO_BUDGET_SECONDS` can only lower it for testing). Exceeding it stops the run, cleans up and exits `1`.
+The hard time budget is 600 seconds (`RECKON_DEMO_BUDGET_SECONDS` can only lower it for testing). Exceeding it stops the run, cleans up and exits `1`.
 
 ## Exact observable results
 
 A passing run prints these in order. Lines starting with `PASS` are assertions; any failed assertion prints `ASSERTION FAILED: ...`, then `DEMO RESULT: FAIL`, cleans up and exits `1`.
 
-RESULTS_PLACEHOLDER
+The run takes about three to four minutes of wall time on an ordinary machine (the measured run was 190 seconds). Each section below starts with a `== heading  (t+Ns)` line.
+
+1. **Banner.** Lines naming `SIMULATED PRICES`, `SCRIPTED FORECASTS`, `ACCELERATED TIMING` and `PLAY MONEY`, the sentence `This run ... does NOT demonstrate live forecasting skill`, the 600-second hard budget and the private work directory (`.../rkd-XXXXXX`).
+2. **Preflight and build.** `PASS` for the sandbox and fresh contract artifacts, and for the browser bundle. A missing prerequisite prints the original `check-local.sh` message and the run fails before starting anything.
+3. **Starting the real service.** `Local UI: http://127.0.0.1:<port>`; open it while the run is in progress to watch the same chain. The UI header shows `FORECAST INPUTS · SCRIPTED LOCAL FIXTURES · SIMULATED PRICES · ACCELERATED TIMING · NOT LIVE FORECASTING SKILL` and `LOCAL SANDBOX · TEST MONEY`.
+4. **Simulation disclosures.** Ten `PASS` lines: fixture provider mode, test-money network, labelled evidence storage, the four disclosure strings in the served UI bundle, the page labels, and the deterministic challenger key.
+5. **Baseline.** The deployed contract exports exactly the repository production Wasm's 20 functions, does not export `set_payment_callback_fault` (which the test-only build adds), and exports no withdrawal, upgrade, owner, administrative or key-management method. The account starts with one full-access key and one function-call key limited to `publish_prediction` on the agent account with a finite 5 NEAR allowance. The first conservation check shows held funds (about 120 NEAR) against obligations (100 NEAR) plus the 20 NEAR reserve.
+6. **Restricted-key rehearsal.** The prediction key is rejected by the chain with `RequiresFullAccess` for a transfer, a code deployment, adding a key and deleting a key, with `MethodNameMismatch` for any other method and with `ReceiverMismatch` for any other account. The full-access key and an unrelated account are each rejected by the contract when they try to publish. The production Wasm has no fault method (`MethodNotFound`).
+7. **Scenario 1, agent win.** The real service publishes prediction #1 (scripted NO at 85%, signed by the restricted key, evidence hash matching the download). The challenger wallet takes the position through the service's RPC proxy. After 300 simulated seconds the keeper settles with the simulated price below the reference: outcome NO, no payment, the contract account balance unchanged, the challenger balance unchanged.
+8. **Scenario 2, challenger win.** Simulated price above the reference: outcome YES. The challenger account balance rises by exactly both stakes and the contract balance falls by exactly the same amount; a bystander account receives nothing; the payout receipt on the challenger account is printed.
+9. **Scenario 3, void refund.** The simulated oracle never answers. A void attempt before the 120-second window closes is rejected. After the window the keeper voids: the challenger receives exactly its original stake, the contract pays that stake plus the 0.02 NEAR simulated oracle fee (charged to the reserve), the commitment is released and the round is excluded from accuracy.
+10. **Scenario 4, recoverable payment failure.** The winning challenger's account is deleted before settlement, so the payout transfer fails. The result stands, the amount stays a pending liability to the same beneficiary, the funds are back in the contract and conservation still holds with the liability counted. The keeper's retries are rejected while the account is absent.
+11. **Scenario 5, permanent death.** The run skips idle time to leave about 100 simulated seconds of life, then the service publishes and a taker accepts the last challenge. Upkeep exhausts the bankroll mid-round. The late correct forecast resolves, both late stakes are retired rather than returned to usable bankroll, spendable bankroll stays zero, and the earlier payment liability is still outstanding.
+12. **Death is irreversible.** The service cannot publish; the restricted key still signs but the contract rejects it; takes (with 1 NEAR attached) are rejected and refunded; an unsolicited 1 NEAR transfer does not revive the agent; conservation holds with that transfer counted as unsolicited.
+13. **Lock rehearsal.** The full-access key removes itself on the throwaway account. Exactly one key remains (the restricted key). The old key is rejected with `AccessKeyNotFound` for a transfer, a deployment and adding a key, and keys, code and funds are unchanged.
+14. **Recovery after death and the lock.** The challenger account is restored, the service's retry (the same path as the UI's **Retry payment** button) pays the original beneficiary the original amount exactly once, a third party's duplicate retry is rejected, and the final conservation check shows no pending liability.
+15. **Summary and result.** Five scenario lines (`1. agent win` through `5. permanent death`), then `ASSERTIONS PASSED: <count>` and `DEMO RESULT: PASS in <N>s of the 600s hard budget`.
+16. **Cleanup.** Three `OK` lines: no process started by this run is still running, the service port is closed, and the temporary directory is removed. The exit code is `0`.
+
+Failure modes, all non-zero: a failed assertion (every `FAIL` line is repeated under `Failed assertions:`), a startup or prerequisite failure, the time budget, `RECKON_PROVIDER_MODE=live` in the environment, and cleanup that cannot remove what the run started. Assertions never stop the run early, so one run lists every failure.
 
 ## Why the assertions are not just narration
 
