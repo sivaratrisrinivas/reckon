@@ -889,6 +889,7 @@ async function requestForecast(challengeIntent = null) {
   requestInFlight = true;
   busyControl ??= $('ask-button');
   setAvailableAction();
+  restoreFocus();
   showStatus('Checking recent market evidence and the settlement reference, then asking the configured model.', 'thinking');
   let approvalOpened = false;
   try {

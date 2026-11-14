@@ -48,8 +48,9 @@ export async function ensureIdle(request: APIRequestContext): Promise<void> {
   // Only rebuild the challenger account when a previous test left it deleted.
   if ((await request.get('/api/wallet/balance')).status() !== 200) await paymentScenario(request, 'restore').catch(() => undefined);
   await settlementScenario(request, 'below');
-  for (let attempt = 0; attempt < 4 && await activePrediction(request); attempt += 1) {
-    await advance(request, 130);
+  // Small steps: once the deadline passes the keeper must get its oracle request in before the 120 s cutoff, or the round voids.
+  for (let attempt = 0; attempt < 12 && await activePrediction(request); attempt += 1) {
+    await advance(request, 50);
     await new Promise(resolve => setTimeout(resolve, 1_500));
   }
   await walletScenario(request, 'sandbox');
@@ -155,7 +156,11 @@ export async function auditControlsAndText(page: Page): Promise<string[]> {
     }
 
     if (document.documentElement.scrollWidth > innerWidth + 1) {
-      issues.push(`page scrolls horizontally: ${document.documentElement.scrollWidth}px content in a ${innerWidth}px viewport`);
+      const wide = [...document.body.querySelectorAll('*')]
+        .filter(element => isVisible(element) && element.getBoundingClientRect().right > innerWidth + 1)
+        .slice(0, 4)
+        .map(element => `${label(element)}.${element.className || '-'} right edge ${Math.round(element.getBoundingClientRect().right)}px`);
+      issues.push(`page scrolls horizontally: ${document.documentElement.scrollWidth}px content in a ${innerWidth}px viewport; widest: ${wide.join('; ')}`);
     }
     for (const element of document.body.querySelectorAll('*')) {
       if (!isVisible(element) || element.closest('dialog:not([open])')) continue;
@@ -285,7 +290,8 @@ export async function auditState(page: Page, name: string, options: StateAuditOp
     const target = globalThis as unknown as {__reckonShift?: number; __reckonShiftBase?: number};
     return (target.__reckonShift ?? 0) - (target.__reckonShiftBase ?? 0);
   });
-  expect(shifted, `${name}: layout shift since the previous state`).toBeLessThanOrEqual(0.1);
+  const shiftSources = await page.evaluate(() => JSON.stringify((globalThis as unknown as {__reckonShiftEntries?: unknown[]}).__reckonShiftEntries ?? []).slice(0, 700));
+  expect(shifted, `${name}: layout shift since the previous state: ${shiftSources}`).toBeLessThanOrEqual(0.1);
   const primary = await visiblePrimaryActions(page);
   expect(primary.length, `${name}: at most one primary action, found ${JSON.stringify(primary)}`).toBeLessThanOrEqual(options.maximumPrimaryActions);
   expect(await auditContrast(page), `${name}: contrast and metadata size`).toEqual([]);

@@ -51,7 +51,8 @@ header {
 }
 
 .mark { color: var(--text); }
-.environment { display: grid; gap: .2rem; text-align: right; }
+.environment { display: grid; grid-template-columns: minmax(0, 1fr); gap: .2rem; min-width: 0; max-width: 100%; text-align: right; }
+.environment > span { overflow-wrap: anywhere; }
 .network, .provider-label, .eyebrow { color: var(--muted); font-size: .75rem; font-weight: 700; letter-spacing: .13em; }
 .network { color: var(--text); }
 .provider-label { color: var(--attention); }
@@ -79,6 +80,10 @@ a { color: var(--text); text-underline-offset: .2em; }
   background: var(--surface);
   padding: 2rem;
 }
+
+/* The forecast scene always fills a screen, so the public record starts below the fold and does not jump when
+   a prediction appears above it. */
+.forecast { min-height: 100svh; }
 
 .life { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .time { min-height: 1em; margin: .5rem 0; color: var(--text); font-size: clamp(3rem, 8vw, 5rem); font-variant-numeric: tabular-nums; letter-spacing: -.04em; line-height: 1; }
