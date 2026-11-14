@@ -57,6 +57,9 @@ header {
 .network { color: var(--text); }
 .provider-label { color: var(--attention); }
 .wallet-state, .wallet-balance { color: var(--muted); font-size: .75rem; }
+/* The connected message wraps to two lines on phones; reserving them keeps the page from jumping when it arrives. */
+.wallet-state { min-height: 2lh; }
+.wallet-balance { min-height: 1lh; }
 
 main { padding: 4rem 2rem 2rem; }
 .intro { max-width: 670px; }
@@ -198,8 +201,8 @@ dialog h3:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; 
 .record { padding: 3rem 0 2rem; }
 .record > p { max-width: 78ch; }
 .record > p > a { display: inline-flex; align-items: center; min-height: 2.75rem; }
-.prediction-record { display: grid; gap: .75rem; margin: 1.5rem 0; padding: 0; list-style: none; }
-.record-entry { padding: 1rem 1.25rem; border: 1px solid var(--border); background: var(--surface); }
+.prediction-record { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; margin: 1.5rem 0; padding: 0; list-style: none; }
+.record-entry { min-width: 0; padding: 1rem 1.25rem; border: 1px solid var(--border); background: var(--surface); overflow-wrap: anywhere; }
 .record-entry h3 { margin: 0; font-size: 1rem; }
 .record-entry p { margin: .4rem 0 0; }
 .record-entry .record-payment { font-size: .875rem; }
@@ -231,6 +234,8 @@ footer {
   footer { padding: 1.5rem 16px; }
   .prediction { padding: 16px 0 0; border: 0; border-top: 1px solid var(--border); background: transparent; }
   .challenge-panel { padding: 12px; }
+  .record-entry { padding: 12px; }
+  .forecast-status, .settlement-state, .transaction-state { min-height: 4.7em; }
   .wallet-dialog { width: calc(100% - 16px); max-height: calc(100% - 16px); }
   .wallet-dialog-content { padding: 16px; }
   /* Financial terms read as a ledger on phones: label left, exact figure right, so consent terms and the action fit one screen. */

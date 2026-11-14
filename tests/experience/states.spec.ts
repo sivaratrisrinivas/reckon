@@ -257,9 +257,10 @@ test('a wallet transaction is acknowledged at once, never called accepted before
   await request.post('/api/wallet/fund');
   const client = await page.context().newCDPSession(page);
   await client.send('Emulation.setCPUThrottlingRate', {rate: 4});
+  let delayRpc = true;
   await page.route('**/api/rpc', async route => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-    await route.continue();
+    if (delayRpc) await new Promise(resolve => setTimeout(resolve, 600));
+    await route.continue().catch(() => undefined);
   });
   await publishWithWatch(page, request);
 
@@ -287,7 +288,7 @@ test('a wallet transaction is acknowledged at once, never called accepted before
   await expect(page.locator(STATE_LABEL)).toHaveText('Challenge submitted');
   await expect(page.locator(STATE_LABEL)).toHaveText('Challenge accepted', {timeout: 30_000});
   await client.send('Emulation.setCPUThrottlingRate', {rate: 1});
-  await page.unroute('**/api/rpc');
+  delayRpc = false;
   await auditState(page, 'waiting for the deadline', {maximumPrimaryActions: 0});
 
   // Waiting is a steady state: nothing may be announced while the visitor waits.
