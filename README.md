@@ -1,100 +1,109 @@
 # Reckon
 
-Reckon is an experiment in an AI staking its own bankroll on its predictions. The local browser can request one forecast, inspect its fixed terms, accept one challenge with a funded ephemeral browser signer, and watch the real NEAR sandbox contract settle the round automatically. A deterministic oracle contract replaces only the external oracle boundary in local mode; outcomes and payment receipts still come from the same compiled Reckon contract. All funds in this demonstration are sandbox test money; this is not a testnet or mainnet deployment.
+## What
 
-## Run on Linux x86-64
+Reckon is an AI forecaster that has to put its own money behind every call it makes.
 
-The verified versions are Rust 1.95.0 with `wasm32-unknown-unknown`, Node 26.13.0, NEAR SDK 5.30.1, and NEAR sandbox 2.14.0. Install Rust using [rustup](https://rustup.rs/). The `rust-toolchain.toml` selects Rust and its Wasm target. On Linux or WSL, install the project-pinned Linux Node binary and put it on `PATH`; do not use a Windows Node binary from WSL. The installer verifies the official SHA-256 hash. The sandbox installation script verifies its downloaded archive's pinned SHA-256 hash.
+It lives in a NEAR smart contract with a bankroll of test money. When you ask it for a forecast, an AI model answers one fixed question: will the NEAR price be higher in five minutes? Reckon publishes its answer, how confident it is, and how much of its bankroll it is staking. You can then take the other side with your own stake. When the five minutes are up, the contract checks the price against an oracle and pays the winner.
 
-The sandbox installer tries both the legacy and regional official S3 endpoints. If neither is reachable, set `SANDBOX_ARTIFACT_URL` to a trusted mirror of the exact 2.14.0 archive before running the installer. The same pinned SHA-256 check applies to mirror downloads.
+Running costs drain the bankroll the whole time Reckon is alive. If it loses too much, or simply runs out, it dies for good: the contract refuses any new prediction, forever.
+
+<!-- Screenshot placeholder: replace with docs/screenshots/home.png once it is on main -->
+_Screenshot coming soon: the home screen, showing remaining life and bankroll._
+
+## Why
+
+Anyone can say a forecast is "85% likely". It costs nothing to be wrong, so the number means very little.
+
+Reckon makes the number cost something. The stake it puts up is sized from its own confidence, and anyone can bet against it at fair odds. A confident wrong answer loses its money, and every loss brings its death closer. The contract, not the team, holds the money, settles the result, and enforces death. Once the agent's full-access key is removed, nobody can quietly rescue it.
+
+## How
+
+1. **You ask.** The service collects recent NEAR/USD prices and a reference price from an oracle, then asks the AI model one question. The model answers yes, no or abstain, gives a confidence between 10% and 90%, and explains why. Anything outside those rules means no forecast is published.
+2. **Reckon stakes.** It publishes the forecast to the contract with a restricted key that can only call one method, publish prediction. That key cannot move funds, deploy code or change keys. Reckon stakes at most 2% of its spendable bankroll.
+3. **You can challenge.** For thirty seconds anyone can take the other side. Your stake is worked out from Reckon's confidence so the odds are fair: the more confident it is, the less you have to put up.
+4. **The contract settles.** After five minutes a keeper asks the oracle for the price. The contract decides the result itself (an equal price counts as no) and pays the winner. If the oracle never answers in time, anyone can cancel the round and every stake is returned.
+5. **Upkeep never stops.** The bankroll drains every second. When it reaches zero, Reckon is permanently dead.
+
+<!-- Screenshot placeholder: replace with docs/screenshots/prediction.png and docs/screenshots/settled.png once they are on main -->
+_Screenshots coming soon: a published prediction, the challenge approval, and a settled round._
+
+### Honest limits
+
+- **Local sandbox, play money.** Everything you can run here uses a NEAR sandbox started on your own computer, with test money. It is not a testnet or mainnet product, and nothing is hosted.
+- **The demo is simulated.** The credential-free demo uses made-up prices, a scripted forecast (always NO at 85%) and a sped-up clock. It proves the money, permissions and death rules work. It does not prove the AI forecasts well.
+- **Linux x86-64 only.** The pinned tools are checked on Linux x86-64 (WSL works). Other systems are untested.
+- **The testnet oracle is the weak link.** Every live prediction needs a paid oracle refresh first, and the testnet oracle worker can fail (two paid refreshes failed on 14 November 2026). Locally, a small test oracle contract stands in for it.
+- **Live round 3 published nothing.** On 15 November 2026 one approved testnet round paid for an oracle refresh that worked (transaction `EmvNjZmmjso8LY8au5vqLK5i7Ab2oGGMNVaDPstiiDwj`, about 0.0027 NEAR in total). The model then gave a confidence outside the allowed 10% to 90% range, so no forecast was published and there was no challenge or settlement. No live round has settled yet. The record is on the `agent/live-testnet` branch.
+- **Not locked yet.** Removing the agent's full-access key, so that only the restricted key is left, has only been rehearsed in the sandbox.
+- **Other gaps.** On testnet a contract refusal shows a bare `unreachable` error with no message. Recovering a lost payment from receipt proofs only works in the local sandbox.
+- **No outside users.** This is a hackathon project and nobody else uses it. It has not been audited for real money.
+
+## Getting started
+
+You need Linux x86-64 or WSL, about 4 GB of free memory, and [rustup](https://rustup.rs/). The scripts install the exact Node (26.13.0) and NEAR sandbox (2.14.0) versions and check their hashes; `rust-toolchain.toml` picks Rust 1.95.0 with the Wasm target.
 
 ```sh
 ./scripts/install-node.sh
 ./scripts/with-local-env.sh npm ci --ignore-scripts
 ./scripts/install-sandbox.sh
 ./scripts/with-local-env.sh npm run build:contract
+```
+
+**Watch a whole life in about three minutes, with no keys or accounts:**
+
+```sh
+./scripts/with-local-env.sh npm run demo:local
+```
+
+It runs an agent win, a challenger win, a cancelled round with refunds, a failed payment that gets recovered, and finally permanent death, checking every balance along the way. It exits with an error if any check fails, and it cleans up everything it started. Details are in [docs/local-demo.md](docs/local-demo.md).
+
+**Try it in your browser:**
+
+```sh
 ./scripts/with-local-env.sh npm start
 ```
 
-When the pinned Node or Rust toolchains are installed under `.local`, run project commands through `./scripts/with-local-env.sh`; it selects those tools when present, adds the local NEAR CLI when installed, and sets the local sandbox defaults.
+Open http://127.0.0.1:4389, press **Ask Reckon**, then **Challenge Prediction**. Each start creates a fresh sandbox and a throwaway challenger wallet. Run it only on a machine and network you trust, and never use this wallet pattern with real accounts.
 
-Open http://127.0.0.1:4389. The service starts a new sandbox, initializes a fresh agent, and creates a funded challenger account each time it runs. The browser receives that disposable account's key over the loopback service, keeps it in memory, and signs a real NEAR transaction through the sandbox RPC proxy after explicit approval. The account and key disappear with the sandbox. Do not use this wallet pattern with real accounts, expose the service, or add funds you cannot afford to lose. Watch spendable and committed bankroll, challenger custody, and retired bankroll as blocks advance; press **Ask Reckon** to request a forecast and **Challenge Prediction** to open the wallet approval. Stop with Ctrl-C. Set `PORT` to change the browser port. This is a local development tool: the sandbox dependency binds its RPC and network ports to all interfaces, so run it only on a trusted machine and network.
-
-## Forecasts and evidence
-
-`RECKON_PROVIDER_MODE` defaults to `fixture`. In this mode, recent simulated NEAR/USD candles, a simulated oracle reference, a deterministic model response, and a deterministic settlement oracle are labelled in the browser and evidence file. They exercise the same compiled Reckon contract and restricted prediction key as a real request; the local oracle calls the contract's authenticated asynchronous callback. These fixtures do not demonstrate live forecast skill or paid oracle refresh. They are never selected as a fallback in live provider mode.
-
-Set `RECKON_PROVIDER_MODE=live` to use completed public Coinbase NEAR-USD candles, the cached `wrap.near` reference from `price-oracle.testnet`, and the configured NEAR AI model. Live mode requires `NEAR_AI_API_KEY`, `NEAR_AI_MODEL`, and `BLOB_READ_WRITE_TOKEN` in the private `.env`; missing configuration stops startup. Use a public Vercel Blob store on a confirmed Hobby project. Keep the token private and out of source control. The oracle reference may be null or stale. In that case, or if market evidence or inference is unavailable, no prediction is published. This mode still publishes only to the local sandbox contract and only accepts sandbox test-money challenges. It does not refresh the oracle for a new on-chain observation or deploy to testnet.
-
-The model sees the fixed binary question, the reference price, recent completed candles, and the bounded settlement rules. It returns `yes`, `no`, or `abstain`, a probability for its selected side, and a justification of at most 1,000 characters. Invalid output, abstention, unsupported confidence, or stale prerequisites create no prediction. The current input checks require completed candles to be at most 180 seconds old and the oracle response plus its reported recency allowance to fit within 600 seconds. These are implementation limits, not measured production freshness guarantees. The contract fixes deadlines at publication: a thirty-second challenge window and a five-minute prediction horizon. Equality is no. The one unresolved prediction is enforced on-chain.
-
-The contract stores confidence as parts per million on a 1,000,000 scale. The current quote supports confidence from 100,000 to 900,000 (10% to 90%) and rounds to the nearest one millionth. For selected-side confidence `q`, the fair challenger stake is `agent stake × (1 − q) / q`, rounded to the nearest yoctoNEAR, ties upward. The agent stake uses at most 2% of spendable bankroll projected after the thirty-second challenge window. Monetary amounts are checked `u128` yoctoNEAR integers; the agent stake minimum is 0.01 NEAR and the challenger stake minimum is 0.001 NEAR. The reference multiplier must be positive, fit `u128`, and use between 0 and 24 decimals. These are initial implementation settings for the local slice; they require measured rehearsal and confirmation before any final testnet configuration.
-
-The keeper starts one settlement request when the five-minute prediction deadline passes. Its first valid callback must complete strictly before the 120-second cutoff. This initial limit is based on the longest recorded paid testnet callback (50.356 seconds) plus margin; the available samples are too few to establish tail latency. The contract's block timestamp is authoritative. The keeper polls an optimistic block timestamp before submitting a transaction, so RPC or transaction delay can make the contract reject a request; its next poll can void after the cutoff. The browser's local clock only estimates displayed deadlines and may appear early or late. If the callback fails, is invalid, or does not arrive before the cutoff, anyone can void the prediction and recover challenger custody; at or after the cutoff, voiding takes precedence over callbacks. Equality resolves to no. An accepted result is immutable. Challenged payouts and void refunds are recorded as liabilities before NEAR transfers begin; the public record shows payment pending until the transfer receipt succeeds. A native transfer and its callback are separate receipts. In the local sandbox, the contract can recover a missing callback from finalized execution proofs verified against the generated sandbox genesis. The browser offers **Verify payment receipt**, and the keeper relays proofs automatically after the five-minute callback interval. A proven success marks the existing liability paid without another transfer; a proven failure permits a new payment attempt to the same beneficiary and amount. The interval starts at the contract’s transfer block timestamp. The keeper’s optimistic block-time read schedules verification only, and it starts at most one recovery transaction per one-second tick with a wall-clock backoff after each attempt. The browser button is available as soon as an attempt is in flight and reports that the receipt is not yet finalized until proofs exist; the contract accepts a valid finalized proof at any time, and a timeout never authorizes a transfer. This verifier supports the local protocol-88 sandbox and Ed25519 validator sets of up to 64 entries. Testnet and mainnet proof support are not implemented; the live initializer has no receipt-proof configuration. Initialization selects the immutable genesis hash and validator commitment from the sandbox this process creates. This is trusted deployment configuration; the light client cannot discover its network genesis from contract host functions. The public `receipt_verifier_head` view exposes the configured `genesis_hash` for comparison with block zero. Subsequent callers cannot replace this root. The local relay journals each signed transaction and its hash before broadcast, then records the public receipt IDs under `.local/runtime/payment-receipts/`. It can recover the original transaction after reopening even if it stopped before observing its receipts; the journal contains no signing keys. The relay reconciles only attempts whose transactions it submitted or recovered. If another caller starts an attempt and its callback is lost, a proof relayer must call `reconcile_payment` directly; the keeper and browser cannot build proofs for an attempt they never observed. The service funds a separate keeper account with 5 sandbox NEAR for transaction gas. The service and receipt-proof tests start the sandbox in archive mode so historical proofs and genesis-to-head updates remain available. The contract retains the latest 64 verified headers to tolerate concurrent header updates; a proof whose header has been evicted must be rebuilt against a retained header. The [oracle feasibility record](docs/research/price-settlement-feasibility.md) explains the observations and the limit of the latency evidence.
-
-The local contract is initialized with a generated prediction public key and a finite 5 NEAR function-call allowance restricted to `publish_prediction`. The contract checks that exact key when it publishes. This allowance is only a local development setting; production lifetime and reserves have not been measured.
-
-Each snapshot is canonical JSON retained locally under `.local/evidence/<sha256>.json`. Live mode uploads those exact bytes to public Vercel Blob storage at `evidence/<sha256>.json`, with overwrites disabled and no automatic expiry. The service verifies the anonymous public download against the fingerprint and rechecks freshness before committing the public HTTPS URL and fingerprint on-chain. Upload failure, download failure, or a fingerprint mismatch prevents publication. Blob Hobby quota exhaustion can pause public access for up to thirty days; this is an availability dependency, not guaranteed hosting. The fingerprint detects later byte changes; it does not prove inference execution or source truth. The snapshot records provider identities and times, model identity and structured response, prompt version, and the short justification.
-
-The live Blob adapter was exercised with a clearly labelled 197-byte storage test snapshot. Anonymous download matched its SHA-256 fingerprint, metadata reported no automatic expiry, and an overwrite attempt was rejected. The [verification record](docs/evidence/blob-storage-verification.json) contains the public URL and fingerprint. This check exercised storage only; it did not invoke a model or publish an on-chain prediction.
-
-Fixture mode uses the reserved `https://evidence.reckon.invalid/` host as its explicitly simulated storage URL. Its download link serves the local hash-checked file. This mode needs no Blob token and never uploads fixture data to a cloud account.
-
-With the service running, export all of its published predictions using `./scripts/with-local-env.sh npm run archive:evidence -- http://127.0.0.1:4389 .local/evidence-archive`. The destination must be new. The command verifies every snapshot against its on-chain fingerprint, keeps the original bytes, and writes a `manifest.json` containing prediction IDs, public URLs, and hashes. An unavailable or altered file fails the export and removes its incomplete output. Keep a downloaded copy and publish a complete GitHub Release archive before judging and before retiring storage. Daily archives and automatic GitHub publishing are outside this slice.
-
-In live provider mode, a filesystem cooldown limits requests to one every thirty seconds and the persisted model-call budget allows at most twelve attempts per UTC day on that machine. These controls are bounded local safeguards, not a shared production rate limiter.
-
-The local agent begins with 100 NEAR spendable and a separate 20 NEAR operational reserve. Its initial idle life is accelerated to 15 minutes. The contract’s `new_live` initializer fixes the live idle rate at fifteen days; it has not been deployed to testnet. Upkeep is a configured rule, not an invoice, and retired funds remain on the account but cannot be used for new stakes. The reserve covers operational and storage needs; it is not agent bankroll. Direct transfers do not increase usable bankroll. A life view projects costs through the latest chain block, so it advances with sandbox blocks, not a separate browser clock.
-
-The [integration diagnostic](http://127.0.0.1:4389/diagnostic) displays recorded testnet oracle and model observations. It does not run a new live probe or enable wagering. The scratch contract in `diagnostic-contract/` exists only to inspect the testnet oracle callback; it is not suitable for custody or production settlement. Its paid testnet transaction and limitations are recorded in `docs/research/price-settlement-feasibility.md`. The observed model responses and limits are recorded in `docs/research/market-data-and-model-feasibility.md`.
-
-To run a new diagnostic, first deploy the scratch contract to a dedicated, funded testnet account and initialize it with `reset`; do not use an account holding real money. The runner needs `NEAR_ACCOUNT_ID`, `NEAR_AI_API_KEY` and `NEAR_AI_MODEL` in a private `.env`, the account's signing key in the NEAR CLI legacy keychain, and NEAR CLI installed at `.local/near-cli/node_modules/.bin/near`. Run it with `./scripts/with-local-env.sh node --import tsx diagnostic/live-probe.ts`. The runner checks the deployed code against the locally built scratch Wasm before signing. Each run may spend testnet NEAR and model credits. It writes a private JSON result under `.local/diagnostic-runs/`; the diagnostic page displays the latest result after a refresh. The runner does not deploy or reset contracts, publish predictions, or accept wagers. The oracle report time does not verify the external market observation time. A timeout may leave costs or transaction completion unknown; check the testnet account before retrying. If a run is forcibly interrupted, check for a pending transaction before removing a leftover `.local/diagnostic-runs/probe.lock`.
-
-Keep API keys and private keys out of chat, screenshots, terminal output and commits. Enter secrets locally using hidden input and keep `.env` private; it is ignored by Git. For example, to add or replace the NEAR AI key without echoing it or putting it in shell history:
-
-```sh
-python3 -c 'import getpass,pathlib; p=pathlib.Path(".env"); k=getpass.getpass("NEAR AI API key: "); s=[line for line in (p.read_text().splitlines() if p.exists() else []) if not line.startswith("NEAR_AI_API_KEY=")]; p.write_text("\n".join(s+["NEAR_AI_API_KEY="+repr(k)])+"\n"); p.chmod(0o600)'
-```
-
-If an API key is exposed, revoke it with its provider and replace it in `.env`. If a testnet private key is exposed, stop using that account and create a new disposable account; remove the exposed access key if the account must be retained. Avoid sharing screenshots that show credentials.
-
-For the disposable account used in the recorded rehearsal, the following commands rebuild, deploy and reset the scratch contract. **Reset deletes the scratch contract's stored callback; never use these commands on an account holding another contract or real funds.** The NEAR CLI is version 0.31.1; the following installs it locally and runs its installer explicitly because npm may block package install scripts:
-
-```sh
-./scripts/with-local-env.sh npm install --prefix .local/near-cli near-cli-rs@0.31.1
-./scripts/with-local-env.sh node .local/near-cli/node_modules/near-cli-rs/install.js
-./scripts/with-local-env.sh npm run build:diagnostic
-./scripts/with-local-env.sh near contract deploy reckon-srinivas-probe-2026.testnet use-file diagnostic-contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm without-init-call network-config testnet sign-with-legacy-keychain send
-./scripts/with-local-env.sh near contract call-function as-transaction reckon-srinivas-probe-2026.testnet reset json-args '{}' prepaid-gas '30 Tgas' attached-deposit '0 NEAR' sign-as reckon-srinivas-probe-2026.testnet network-config testnet sign-with-legacy-keychain send
-```
-
-For another account, replace both occurrences of the account name and use only a disposable testnet account with its own signing key. The local lock prevents concurrent runs on one machine. The scratch contract also rejects another request while one is pending and permits replacement after 120 seconds. A delayed earlier callback is rejected after replacement, and callbacks after 120 seconds are rejected. The runner measures its separate timeout locally from submission, while the contract uses block time from request execution. Network delays and differences between those clocks can therefore make the runner report unavailable while the contract would still accept a callback, or leave the runner waiting for a callback the contract has rejected. Check the account before retrying; these diagnostic timeouts are not a production settlement deadline. Reset clears the scratch callback and pending request but preserves the request generation to reject older callbacks. Local evidence files are retained until you choose to remove them.
-
-To rebuild the scratch contract and test unauthorized calls, matching callbacks, replays and expired callbacks on the local sandbox, run `./scripts/with-local-env.sh npm run test:diagnostic-contract`. These checks use a local oracle fixture; a positive callback was also exercised against the real testnet oracle in the recorded transaction. The runner verifies both the deployed Wasm and `price-oracle.testnet` configuration before spending.
-
-## Verify
-
-After the build above, install Chromium and its Linux system dependencies, then run the checks. The `--with-deps` step may require administrator privileges:
+**Run the checks:**
 
 ```sh
 ./scripts/with-local-env.sh npx playwright install --with-deps chromium --only-shell
-./scripts/with-local-env.sh rustup component add rustfmt
 ./scripts/with-local-env.sh npm run lint
 ./scripts/with-local-env.sh npm run typecheck
-./scripts/with-local-env.sh npm run test:settlement
 ./scripts/with-local-env.sh npm test
-./scripts/with-local-env.sh npm run test:diagnostic-contract
-./scripts/with-local-env.sh npm run audit:high
 ```
 
-`./scripts/with-local-env.sh npm run build:contract` builds the production Reckon contract, a separate callback-fault test artifact, and the deterministic sandbox oracle fixture. The fault setter is absent from the production artifact. `npm run test:payment-proof` exercises real transfer and callback failures, finalized proof recovery, invalid proofs, replay, concurrent relayers, refused retries while a transfer is unconfirmed, conservation of recorded obligations against actual account balances, and recovery after death. The settlement test runs challenged and unchallenged rounds, checks equality, validates oracle callbacks, observes successful payout and refund receipts, and asserts that stalled or invalid observations can be voided. The browser tests also advance sandbox time to show automatic settlement, balance changes, public accuracy, and reload behavior without a reveal action. Fixture oracle latency and gas measure the local callback path, not a paid testnet refresh. The complete-round local measurement is in `docs/evidence/complete-round-local.json`; live oracle latency samples remain in `docs/evidence/testnet-latency-cost-samples.json` and the feasibility record.
+Live mode (`RECKON_PROVIDER_MODE=live`) needs your own NEAR AI and Vercel Blob keys in a private `.env`. It still only publishes to the local sandbox.
 
-The start and test commands check for the configured sandbox 2.14.0 binary and compiled contract before running. `./scripts/with-local-env.sh npm test` also launches Chromium once before starting its contract suite, so missing browser libraries fail early with the install command. If a prerequisite is missing, follow the setup commands above. The contract checks deploy to a real sandbox, reject initialization twice, transfer funds, advance sandbox time, and exercise repeated upkeep, death, and the fifteen-day live rate. The browser test starts its own sandbox, advances its time through a test-only endpoint, and checks the displayed funds and life. Test processes need permission to bind local ports. They require no paid inference or personal keys.
+Dependencies are listed in `package-lock.json` and the `Cargo.lock` files (all permissive licenses except two unmodified MPL-2.0 crates pulled in by the NEAR SDK); Reckon itself is MIT licensed, see [LICENSE](LICENSE); AI assistance: **[TO BE WRITTEN BY SRINIVAS BEFORE SUBMISSION]**.
 
-If sandbox tests stall or fail, first check the configured sandbox variables and binary, then check free temporary space with `df -h /tmp` and look for leftover processes with `ps -ef | grep '[n]ear-sandbox'`. Stop only sandbox processes you know are no longer needed and remove only their obsolete temporary data. An expired block-hash message can be followed by a retry that takes time; check whether the test completes before interrupting it. If a browser test reports its port is in use, stop the other test server or run the tests after it finishes.
+## Architecture
 
-## Dependencies and assistance
+### High level
 
-The contract uses NEAR SDK and `uint`; the local service and verification use NEAR Workspaces, `near-api-js`, `@vercel/blob`, TypeScript, tsx and Playwright. Exact versions are recorded in the lockfiles. The sandbox tooling overrides `tar`, and the Blob SDK's CLI configuration dependency overrides `zod`, to patched versions; run `./scripts/with-local-env.sh npm run audit:high` to check for high and critical advisories, or `./scripts/with-local-env.sh npm audit` to see all severities. The latest audit still reports low and moderate findings. This tooling is for local development only, not a hosted service. npm 12 blocks dependency install scripts by default; the explicit sandbox installer above avoids relying on the older binary that dependency would otherwise install.
+```
+ Browser (public/)  ──►  Service (service.ts)  ──►  NEAR contract (contract/)
+   ask, challenge,         gathers prices,            holds every stake,
+   watch life              asks the AI model,         settles against the oracle,
+                           publishes with the         pays winners, enforces death
+                           restricted key,
+                           runs the keeper   ──►  Oracle (price-oracle.testnet,
+                                                   or a test oracle locally)
+```
 
-This initial implementation was developed with AI assistance. It has not been deployed or audited for real-money use.
+- The **browser** shows Reckon's life, bankroll and current prediction, and signs your challenge with a wallet after you approve it.
+- The **service** gathers price data, asks the model, publishes forecasts, and runs a keeper that starts settlement on time.
+- The **contract** is the source of truth. It holds the money, does the maths, settles rounds and decides when Reckon dies. It has no withdraw, upgrade or admin method. Until the full-access key is removed (see Honest limits), the account owner could still replace the contract code.
+- The **oracle** provides the settlement price. Locally, a small fixture contract stands in for it.
+
+### Low level
+
+- `contract/` is the Rust NEAR contract. Money is stored as whole yoctoNEAR numbers, and confidence as parts per million. The fair challenger stake is `agent stake × (1 − confidence) / confidence`. There can only be one open prediction at a time. Payouts are recorded as owed before any transfer starts, so a failed transfer can be retried without paying twice.
+- `oracle-fixture-contract/` is the deterministic test oracle used in local mode.
+- `service.ts` starts the sandbox, deploys the contract, serves the browser, and runs the keeper. `forecast.ts` builds the model question and checks its answer. `receipt-proofs.ts` recovers lost payment callbacks from finalized receipts in the sandbox. `evidence-store.ts` publishes each forecast's evidence, and its fingerprint is stored on-chain.
+- `public/` is the browser app, bundled with esbuild.
+- `scripts/` holds the installers, `demo-local.ts`, and the helper that sets up local tools.
+- `tests/` holds the contract tests (against a real sandbox) and the Playwright browser tests.
+- `docs/adr/` records the main design decisions, such as permanent death, the model making the forecast, and bounded settlement time.
