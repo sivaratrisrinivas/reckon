@@ -1,3 +1,14 @@
+# Issue #11 verification (2026-11-15 00:57 IST, GS-T71, clean Linux x86-64 box, branch tip cd321d0)
+
+Verified on a fresh clone with no `.env` (Node 26.13.0, Rust 1.95.0, NEAR sandbox 2.14.0, `npm run build:contract` first):
+
+- `npm run demo:local` run A: exit 0, `ASSERTIONS PASSED: 177`, `DEMO RESULT: PASS in 188s of the 600s hard budget`, all three cleanup lines `OK`.
+- `npm run demo:local` run B, immediately after: exit 0, 177 passed, PASS in 187s, all three cleanup lines `OK`.
+- `npx playwright test tests/demo-local.spec.ts`: 4 passed (3.7 min): live mode refused, startup failure exits non-zero and leaves no data, budget overrun exits non-zero and leaves no process or data, full life to verified death with the UI checks and exit 0 after Ctrl-C.
+- `npm run lint` 0, `npm run typecheck` 0.
+
+The text below is the earlier status, kept for history; the "not confirmed" items above are now confirmed.
+
 # Issue #11 status (written 2026-11-15 00:35 IST, at a forced stop)
 
 Branch `worktree-agent-a339859bdc9aaa0fa`, based on and merged with the integration branch tip `89e8111`. Everything is committed.
