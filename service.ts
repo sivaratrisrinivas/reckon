@@ -8,6 +8,7 @@ import {SETTLEMENT_WINDOW_SECONDS} from './forecast.js';
 import {publishBlobEvidence} from './evidence-store.js';
 import {ReceiptProofRelay, sandboxReceiptGenesis} from './receipt-proofs.js';
 import {localSigner} from './local-signers.js';
+import {assessOperations, explainPublicationFailure, readOperationalInputs, type OperationalState} from './operational.js';
 
 // The credential-free local simulation never reads .env and never leaves fixture mode.
 const demoLocal = process.env.RECKON_DEMO_LOCAL === '1';
@@ -36,6 +37,7 @@ const challengerWallet = await root.createSubAccount('challenger', {
 const challengerKey = await challengerWallet.getKey();
 if (!challengerKey) throw new Error('The sandbox challenger wallet key is unavailable');
 const predictionKey = demoLocal ? localSigner('prediction') : KeyPairEd25519.fromRandom();
+const PUBLICATION_ALLOWANCE = 5n * 10n ** 24n; // local development setting, not a measured live allowance
 const oracleFixture = providerMode === 'fixture'
   ? await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_oracle_fixture.wasm', {
     initialBalance: 5n * 10n ** 24n,
@@ -62,7 +64,7 @@ const contract = await root.devDeploy(contractWasm, {
 });
 await contract.batch(contract).addKey(
   predictionKey.getPublicKey(),
-  functionCallAccessKey(contract.accountId, ['publish_prediction'], 5n * 10n ** 24n),
+  functionCallAccessKey(contract.accountId, ['publish_prediction'], PUBLICATION_ALLOWANCE),
 ).transact();
 
 const receiptRelay = await ReceiptProofRelay.open(sandboxRpcUrl, contract, `${stateDirectory}/runtime/payment-receipts/${receiptGenesis.genesis_hash}/${contract.accountId}.json`, paymentKeeper);
@@ -71,13 +73,39 @@ function submitPaymentOperation(method: string, args: Record<string, string>) {
   return receiptRelay.submit(method, args);
 }
 
+const PUBLISH_GAS = 250n * 10n ** 12n;
+async function sandboxRpcCall(method: string, params: object): Promise<unknown> {
+  const response = await fetch(sandboxRpcUrl, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({jsonrpc: '2.0', id: 'reckon-operational', method, params})});
+  const body = await response.json() as {result?: unknown; error?: unknown};
+  if (!response.ok || body.error) throw new Error(`Sandbox RPC ${method} failed`);
+  return body.result;
+}
+
+type LifeView = {dead: boolean; spendable_bankroll: string; committed_bankroll: string; challenger_custody: string; retired_bankroll: string; pending_payment_liabilities: string};
+// The contract cannot read its own keys, so operational readiness combines its life view with the key and account over RPC.
+async function readOperationalState(): Promise<OperationalState> {
+  const life = await contract.view<LifeView>('life', {});
+  const obligations = BigInt(life.spendable_bankroll) + BigInt(life.committed_bankroll) + BigInt(life.challenger_custody)
+    + BigInt(life.retired_bankroll) + BigInt(life.pending_payment_liabilities);
+  return assessOperations(await readOperationalInputs(sandboxRpcCall, contract.accountId, predictionKey.getPublicKey().toString(), PUBLISH_GAS, obligations, life.dead));
+}
+
 const chain: PredictionChain = {
   activePrediction: () => contract.view<OnChainPrediction | null>('active_prediction', {}),
   quotePrediction: confidencePpm => contract.view<PredictionQuote>('quote_prediction', {confidence_ppm: confidencePpm}),
-  publishPrediction: input => contract.call<OnChainPrediction>(contract, 'publish_prediction', input, {
-    signWithKey: predictionKey,
-    gas: 250n * 10n ** 12n,
-  }),
+  publishPrediction: async input => {
+    try {
+      return await contract.call<OnChainPrediction>(contract, 'publish_prediction', input, {signWithKey: predictionKey, gas: PUBLISH_GAS});
+    } catch (error) {
+      const operational = explainPublicationFailure(error);
+      if (operational) throw Object.assign(new Error(operational.reason), {operationalCause: operational.cause});
+      throw error;
+    }
+  },
+  publicationReadiness: async () => {
+    const state = await readOperationalState();
+    return state.operational_unavailability ? {available: false, cause: state.operational_unavailability, reason: state.reason ?? ''} : {available: true};
+  },
 };
 const forecast = new ForecastService(chain, {
   mode: providerMode,
@@ -275,6 +303,13 @@ const server = createServer(async (req, res) => {
       json(res, 200, await contract.view('life', {}), {'Cache-Control': 'no-store'});
       return;
     }
+    if (req.method === 'GET' && url.pathname === '/api/operational') {
+      json(res, 200, {
+        label: 'local sandbox · publication key and operational reserve, separate from bankroll death',
+        ...await readOperationalState(),
+      }, {'Cache-Control': 'no-store'});
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/api/config') {
       json(res, 200, {
         network: 'local NEAR sandbox · test money',
@@ -401,6 +436,22 @@ const server = createServer(async (req, res) => {
       const blockTimestamp = await fastForwardSandboxSeconds(seconds);
       await runSettlementKeeper();
       res.writeHead(204, {'X-Test-Sandbox-Timestamp': blockTimestamp.toString()}).end();
+      return;
+    }
+    if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/publication-key') {
+      // Re-add the publication key with a tiny remainder (exhaust) or its normal allowance (restore), signed by the account's own test key.
+      const body = await readJsonBody(req);
+      if (body.scenario !== 'exhaust' && body.scenario !== 'restore') { json(res, 400, {error: 'Unsupported publication key scenario'}); return; }
+      const allowance = body.scenario === 'exhaust' ? 10n ** 22n : PUBLICATION_ALLOWANCE;
+      await contract.batch(contract).deleteKey(predictionKey.getPublicKey())
+        .addKey(predictionKey.getPublicKey(), functionCallAccessKey(contract.accountId, ['publish_prediction'], allowance)).transact();
+      res.writeHead(204).end();
+      return;
+    }
+    if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/fund-contract') {
+      const receipt = await root.transfer(contract, 10n * 10n ** 24n);
+      if (!receipt.succeeded) { json(res, 503, {error: 'Could not fund the agent account'}); return; }
+      res.writeHead(204).end();
       return;
     }
     if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/accrue') {

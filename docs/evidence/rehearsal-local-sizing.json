@@ -1,0 +1,122 @@
+{
+  "label": "local sandbox with fixture oracle, not live",
+  "status": "PROPOSED: derived from local measurements and the assumptions below; not approved, not live-verified, not to be written into an immutable configuration",
+  "provenance": {
+    "captured_on": "2026-11-14",
+    "git_commit": "fd2ba4be8ccfcb1c2c48e34e168e37eb6970b49e",
+    "node": "v26.13.0",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "near_sdk": "5.30.1",
+    "near_sandbox": "neard (release 2.14.0) (build 2.14.0) (commit bc4e9e8cfb03d9e82f027883055624e18576993e) (rustc 1.95.0) (min_protocol 84) (protocol 88) (db 51)",
+    "contract_wasm_sha256": "f763a86919db178ff9187acaa637342244e3020962288a84b6c6bda15f1bebf6",
+    "contract_wasm_bytes": 442785,
+    "commands": [
+      "npm run build:contract",
+      "npx tsx tests/rehearsal-measurements.ts   (prints REHEARSAL_MEASUREMENT)",
+      "npx tsx tests/settlement-contract.ts   (prints COMPLETE_ROUND_MEASUREMENT)",
+      "sh scripts/with-archive-sandbox.sh npx tsx tests/payment-reconciliation.ts   (prints PAYMENT_PROOF_MEASUREMENT)",
+      "npx tsx scripts/rehearsal/assemble-local-evidence.ts --measurement-log ... --complete-round-log ... --payment-proof-log ..."
+    ],
+    "commands_run_through": "./scripts/with-local-env.sh under the shared heavy-command lock"
+  },
+  "measured_inputs": {
+    "publication_burn_yocto": "217614630768600000000",
+    "publication_net_account_cost_yocto": "217614630768600000000",
+    "state_bytes_per_prediction": "593",
+    "storage_byte_cost_yocto": "10000000000000000000",
+    "code_bytes": "442785",
+    "required_allowance_yocto_by_prepaid_gas_tgas": {
+      "30": "30919650039240600000000",
+      "50": "50919650039240600000000",
+      "100": "100919650039240600000000",
+      "250": "250919650039240600000000"
+    }
+  },
+  "recorded_live_observations_not_measured_here": {
+    "source": "docs/evidence/testnet-latency-cost-samples.json and docs/research/price-settlement-feasibility.md (earlier human-run testnet probes)",
+    "oracle_worker_charge_worst_yocto": "1482900100000000000000",
+    "oracle_attached_deposit_yocto": "20000000000000000000000",
+    "note": "Worst of five recorded oracle worker charges (0.0014829001 NEAR) and the 0.02 NEAR deposit attached to each refresh. The local fixture charges nothing."
+  },
+  "assumptions_all_proposed": {
+    "horizon_days": "30",
+    "publications_per_day": "12",
+    "gas_price_headroom": "4",
+    "gas_burn_headroom": "2",
+    "failed_call_percent": "20",
+    "storage_headroom_percent": "125",
+    "settlement_cost_headroom": "2",
+    "stalled_request_percent": "10",
+    "unmodelled_margin_percent": "25",
+    "prepaid_gas_tgas": "30",
+    "allowance_rounding_yocto": "10000000000000000000000"
+  },
+  "publication_key_allowance": {
+    "with_30_tgas_prepaid_gas": {
+      "prepaid_gas_tgas": "30",
+      "publications_covered": "360",
+      "failed_permitted_calls_covered": "72",
+      "burn_per_call_with_headroom_yocto": "1740917046148800000000",
+      "burn_budget_yocto": "752076163936281600000000",
+      "floor_the_network_reserves_with_headroom_yocto": "123678600156962400000000",
+      "proposed_allowance_yocto": "880000000000000000000000",
+      "maximum_gas_exposure_through_key_yocto": "880000000000000000000000",
+      "unusable_remainder_when_exhausted_at_most_yocto": "123678600156962400000000"
+    },
+    "with_250_tgas_prepaid_gas_as_the_service_attaches_today": {
+      "prepaid_gas_tgas": "250",
+      "publications_covered": "360",
+      "failed_permitted_calls_covered": "72",
+      "burn_per_call_with_headroom_yocto": "1740917046148800000000",
+      "burn_budget_yocto": "752076163936281600000000",
+      "floor_the_network_reserves_with_headroom_yocto": "1003678600156962400000000",
+      "proposed_allowance_yocto": "1760000000000000000000000",
+      "maximum_gas_exposure_through_key_yocto": "1760000000000000000000000",
+      "unusable_remainder_when_exhausted_at_most_yocto": "1003678600156962400000000"
+    },
+    "local_development_setting_yocto": "5000000000000000000000000",
+    "note": "The network reserves a multiple of the attached gas from the allowance before accepting a call and credits unused gas back, so the floor depends on the attached gas while consumption depends on the gas burnt."
+  },
+  "operational_reserve": {
+    "with_30_tgas_prepaid_gas": {
+      "prepaid_gas_tgas": "30",
+      "components_yocto": {
+        "code_storage_stake_locked_at_deployment_yocto": "4427850000000000000000000",
+        "state_storage_stake_yocto": "2668500000000000000000000",
+        "publication_gas_from_agent_balance_yocto": "752076163936281600000000",
+        "oracle_worker_charges_recorded_live_worst_case_yocto": "1067688072000000000000000",
+        "oracle_request_deposit_float_yocto": "20000000000000000000000",
+        "oracle_deposits_assumed_lost_on_stalled_requests_yocto": "720000000000000000000000",
+        "minimum_free_funds_for_one_publication_yocto": "123678600156962400000000"
+      },
+      "subtotal_yocto": "9779792836093244000000000",
+      "proposed_operational_reserve_yocto": "12230000000000000000000000"
+    },
+    "with_250_tgas_prepaid_gas_as_the_service_attaches_today": {
+      "prepaid_gas_tgas": "250",
+      "components_yocto": {
+        "code_storage_stake_locked_at_deployment_yocto": "4427850000000000000000000",
+        "state_storage_stake_yocto": "2668500000000000000000000",
+        "publication_gas_from_agent_balance_yocto": "752076163936281600000000",
+        "oracle_worker_charges_recorded_live_worst_case_yocto": "1067688072000000000000000",
+        "oracle_request_deposit_float_yocto": "20000000000000000000000",
+        "oracle_deposits_assumed_lost_on_stalled_requests_yocto": "720000000000000000000000",
+        "minimum_free_funds_for_one_publication_yocto": "1003678600156962400000000"
+      },
+      "subtotal_yocto": "10659792836093244000000000",
+      "proposed_operational_reserve_yocto": "13330000000000000000000000"
+    },
+    "local_development_setting_yocto": "20000000000000000000000000",
+    "excluded": "Model inference cost (never measured), the keeper account that pays gas for settlement and recovery calls, and any funds at risk in bankroll, commitments or challenger custody."
+  },
+  "still_proposed_pending_live_measurement": [
+    "settlement window 120 s",
+    "reference age (candle 180 s, oracle 600 s)",
+    "request cooldown 30 s",
+    "minimum stakes 0.01 and 0.001 NEAR",
+    "confidence range and rounding",
+    "model-call budget and spending limits",
+    "publication key allowance",
+    "operational reserve"
+  ]
+}
