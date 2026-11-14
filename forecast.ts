@@ -25,7 +25,7 @@ const RESPONSE_FORMAT = {
     },
   },
 };
-const ORACLE_RPC = 'https://rpc.testnet.near.org';
+const ORACLE_RPC = process.env.RECKON_ORACLE_RPC ?? 'https://rpc.testnet.near.org';
 const ORACLE_ACCOUNT = 'price-oracle.testnet';
 const ORACLE_ASSET = 'wrap.near';
 const CANDLES_URL = 'https://api.coinbase.com/api/v3/brokerage/market/products/NEAR-USD/candles';

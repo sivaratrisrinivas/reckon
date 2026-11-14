@@ -1,0 +1,105 @@
+{
+  "title": "Live NEAR testnet rehearsal: deployment, restricted keys, and two failed paid oracle refreshes",
+  "status": "incomplete: no prediction was published because the oracle reference could not be refreshed",
+  "provenance": {
+    "recorded_at": "2026-11-14 to 2026-11-15 (IST), by the live agent from the Reckon repository, branch worktree-agent-a5df462075c4b1834",
+    "network": "NEAR testnet, protocol version 88",
+    "rpc_endpoints_used": ["https://test.rpc.fastnear.com", "the near-cli-rs testnet default"],
+    "tooling": "near-cli-rs 0.31.1 (legacy keychain signing for full-access operations); near-api-js 5.1.1 (restricted-key signing); scripts/live/*.ts",
+    "secrets": "No private key, API token or .env value appears in this file. Restricted secret keys are held in files under .local/runtime/live (mode 0600, git-ignored)."
+  },
+  "accounts": {
+    "agent": "reckon-srinivas-test-2026.testnet",
+    "challenger_and_keeper": "challenger.reckon-srinivas-test-2026.testnet",
+    "oracle": "price-oracle.testnet"
+  },
+  "code": {
+    "artifact": "contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm (production artifact, built before this session from the unchanged contract sources at integration tip 89e8111)",
+    "size_bytes": 441968,
+    "sha256": "9b52332ebd6dff8dd265592309eea57c2a3a34b11c264ddb01183673168bdc9e",
+    "on_chain_code_hash_base58": "BTJtgxmWTjd3aD7YUqs6oGeXgHop59FnQtwGaziTrSo7",
+    "exported_methods": "accrue, active_prediction, challenge_prediction, contract_source_metadata, get_prediction, life, list_predictions, new, new_live, on_payment_complete, oracle_on_call, prediction_summary, publish_prediction, quote_prediction, receipt_verifier_head, reconcile_payment, request_settlement, retry_payment, update_receipt_verifier, void_unsettled_prediction",
+    "fault_hook_exported": false,
+    "note": "The callback-fault artifact was not deployed. The exported list equals the allowlist in docs/submission/launch-runbook.md section 4."
+  },
+  "initialization": {
+    "method": "new_live, in the same transaction as the deployment",
+    "initial_bankroll_yocto": "1000000000000000000000000",
+    "operational_reserve_yocto": "5000000000000000000000000",
+    "idle_life_ns": "1296000000000000",
+    "storage_used_bytes_after_deploy": 442684,
+    "storage_cost_near": "4.42684 (442,684 bytes at 10^19 yoctoNEAR per byte)"
+  },
+  "sizing_arithmetic": {
+    "starting_balance_near": "10",
+    "challenger_funding_near": "0.5",
+    "locked_for_storage_near": "4.43",
+    "spendable_after_storage_near": "about 5.06",
+    "allocation": "initial bankroll 1.0; restricted publication key allowance 0.3; keeper key allowance 0.4 (held on the challenger account, not the agent); the reserve figure 5.0 is an accounting statement covering storage, oracle deposits and operations, not a separate balance",
+    "agent_stake_cap": "2% of 1 NEAR spendable = 0.02 NEAR, above the 0.01 NEAR minimum agent stake"
+  },
+  "transactions": [
+    {"step": "create challenger subaccount, transfer 0.5 NEAR", "signer": "agent (full access, legacy keychain)", "hash": "8ZBfhmPoccBiuGV3ns3M1918AQnrtMNCRC5bUFTsKAgG", "fee_near": "0.0071149895375", "gas_tgas": 8.6},
+    {"step": "deploy production Wasm and call new_live in one transaction", "signer": "agent", "hash": "71tHXNjdYMTD6dHWHPiW3bEWc8X7WzqLjq6t4dF3nhT2", "fee_near": "0.003381769351938", "gas_tgas": 34.1},
+    {"step": "add restricted key: publish_prediction only, receiver the agent, allowance 0.3 NEAR (ed25519:xggiyiFfyyJFcKkTemFbSRVYSpTstxcaw8uJ4m9Sz5f)", "signer": "agent", "hash": "3pHtQXdNG8szvk4ba5q2s4erP412Wzzi17sJvg7T2qFv", "fee_near": "0.0000420627412578"},
+    {"step": "add keeper key on the challenger account: request_settlement, void_unsettled_prediction, retry_payment on the agent, allowance 0.1 NEAR (ed25519:3zH3ZNqMLL6wMF9ULknDm7q7LqvEwhnnTPVM3exSjykP)", "signer": "challenger", "hash": "ApJ4ZouBv419CZizbYcHbFuY9qRu9xenYa71tujsPQ3M", "fee_near": "0.0000420781439058"},
+    {"step": "authorization probe with the publication key (decision abstain, 100 Tgas prepaid); failed inside the contract as intended", "signer": "agent restricted key", "hash": "7VoRZBPqsoonHMExeLJMwdcGoQxtQ4rGnUdqSE8iKcU", "net_allowance_debit_near": "0.000183528679050800"},
+    {"step": "same probe with 60 Tgas prepaid", "signer": "agent restricted key", "hash": "Dhp1463yrRMmKhfsQeeWe19Azy4LoGHwohWodrYNLjmY", "net_allowance_debit_near": "0.000183528679050800"},
+    {"step": "keeper request_settlement with no active prediction, 30 Tgas; the contract refused", "signer": "keeper key", "hash": "AojoxB8nz2wYVB37BtU9uPJZbyAgVo9UaG9MqiA6Zbxu", "net_allowance_debit_near": "0.0001775758830281"},
+    {"step": "delete the keeper key (allowance too small for a 240 Tgas settlement)", "signer": "challenger (full access, legacy keychain)", "hash": "9ZxBoRBKDasofv9oKAXmKzs9vfgDj8o7G1ywm1bjCUuY", "fee_near": "0.000040601225"},
+    {"step": "re-add the same keeper key with allowance 0.4 NEAR (function-call key only; the full-access key was not touched)", "signer": "challenger", "hash": "5pwESdPQYWjDKHPYGxsLwPqKc8rizrnN2N6bW5Q9TNtX", "fee_near": "0.0000420781439058"},
+    {"step": "paid reference refresh attempt 1: price-oracle.testnet request_price_data, 100 Tgas prepaid, 0.02 NEAR attached", "signer": "challenger", "hash": "AHfAm73xHNKVVibpmLMhZKoLZ9eRg3e8N4MXXhnd8uit", "result": "outlayer.testnet request_execution failed with 'Exceeded the prepaid gas'; the 0.02 NEAR deposit was not returned", "net_cost_near": "0.020736484312"},
+    {"step": "paid reference refresh attempt 2: same call, 250 Tgas prepaid, 0.02 NEAR attached", "signer": "challenger", "hash": "C3PWT7AxXTszm6VoAUULyp6DMxf4mEao7zSBVkjoJfhG", "result": "request accepted and the worker ran, but outlayer logged 'Execution promise failed: Failed. Refunded 19000000000000000000000 yoctoNEAR' after charging 10^21 yoctoNEAR; the oracle logged 'OutLayer execution failed - received None'; wrap.near price remained null", "net_cost_near": "0.002158991037"}
+  ],
+  "balances_near": {
+    "agent": {"start": "10", "after_failed_refresh_2": "9.4890941210112026"},
+    "challenger": {"after_creation": "0.5", "before_refresh_1": "0.499697666604160300", "after_refresh_1": "0.478961182292291800", "after_refresh_2": "0.476802191255149500"}
+  },
+  "totals": {
+    "lost_to_oracle_on_failed_refreshes_near": "0.022895475349",
+    "paid_oracle_calls_used": "2 of 4 (neither produced a price)",
+    "model_calls_used": "0 of 6",
+    "predictions_published": 0
+  },
+  "restricted_key_checks": {
+    "summary": "A function-call key limited to publish_prediction cannot transfer, cannot call another method, cannot attach a deposit, and cannot target another account. All four were rejected by the network before any contract code ran and left the allowance unchanged.",
+    "attempts": [
+      {"label": "publication key: transfer 0.001 NEAR", "outcome": "rejected before execution", "network_message": "The transaction contains more then one action, but it was signed with an access key which allows transaction to apply only one specific action."},
+      {"label": "publication key: call accrue", "outcome": "rejected before execution", "network_message": "Transaction method name accrue isn't allowed by the access key"},
+      {"label": "publication key: publish_prediction with an attached deposit", "outcome": "rejected before execution", "network_message": "empty error object returned by the client library"},
+      {"label": "publication key: publish_prediction sent to another account", "outcome": "rejected before execution", "network_message": "Wrong AccessKey used for transaction: ... function call access key that restricted to only use with receiver_id=reckon-srinivas-test-2026.testnet"},
+      {"label": "keeper key: transfer 0.001 NEAR", "outcome": "rejected before execution", "network_message": "same single-action message as above"},
+      {"label": "publication key: authorization probe (decision abstain)", "outcome": "executed and failed inside the contract", "network_message": "WebAssembly trap: An `unreachable` opcode was executed.", "limitation": "the on-chain failure carries no panic text, so this probe cannot show which check rejected it; it shows only that the key was accepted by the network and the contract trapped"}
+    ],
+    "keeper_key_method_mismatch": "Not demonstrated live: the two attempts to call a disallowed method with the 100 Tgas keeper key were refused earlier by the allowance check, because the upfront cost (0.1009 NEAR) exceeded the 0.1 NEAR allowance, so the method check was never reached.",
+    "key_lists": {
+      "agent": [
+        {"public_key": "ed25519:xggiyiFfyyJFcKkTemFbSRVYSpTstxcaw8uJ4m9Sz5f", "permission": "FunctionCall publish_prediction on the agent", "allowance_near": "0.2996329426 (after the two probes)"},
+        {"public_key": "ed25519:22zpFurbNRByGybRWPiMMftzeFr6efhKSzvTnxCYNsBo", "permission": "FullAccess (kept: this is a rehearsal account; the final lock was not approved)"}
+      ],
+      "challenger": [
+        {"public_key": "ed25519:3X7XNkMQVZuMpbA8BTw4JVoH9f53VYBMPM3ys4vk4BNW", "permission": "FullAccess"},
+        {"public_key": "ed25519:3zH3ZNqMLL6wMF9ULknDm7q7LqvEwhnnTPVM3exSjykP", "permission": "FunctionCall request_settlement, void_unsettled_prediction, retry_payment on the agent, allowance 0.4 NEAR"}
+      ]
+    }
+  },
+  "measurements": {
+    "prepaid_gas_price": "A prepaid amount is priced upfront at 0.001 NEAR per Tgas (1e9 yoctoNEAR per gas) plus about 0.0009 NEAR, 10 times the 1e8 gas price the RPC reports. Probed at 100, 150, 200, 215, 230, 260 and 300 Tgas; the cost was linear. The unused part is refunded and the access-key allowance is restored, so a key allowance must exceed the largest prepaid amount even though little is spent.",
+    "net_debit_failed_publication": "0.0001835 NEAR of allowance per failed publish_prediction, the same at 100 and 60 Tgas prepaid.",
+    "net_debit_failed_keeper_call": "0.0001776 NEAR of allowance for a refused request_settlement at 30 Tgas prepaid.",
+    "settlement_prepaid_gas": "request_settlement forwards 200 Tgas to the oracle, so the caller needs about 240 Tgas prepaid: 0.24 NEAR of both allowance and account balance upfront.",
+    "reference_refresh_prepaid_gas": "100 Tgas is not enough for request_price_data; outlayer.testnet failed with 'Exceeded the prepaid gas'. Use at least 250 Tgas.",
+    "storage": "442,684 bytes after deployment and initialization, 4.42684 NEAR locked."
+  },
+  "oracle_diagnosis": {
+    "reference_cache": "price-oracle.testnet get_price_data for wrap.near returns price null unless a paid refresh has happened within the last 300 seconds. The last successful report on chain was recorded at 2026-11-14T13:47:05Z with multiplier 334433333 and 8 decimals, so the worker produced a price about five hours before the failed attempts.",
+    "outlayer_state": "outlayer.testnet is not paused. Its request counter was 47539 about five minutes after our request 47516, so other accounts are using it. Whether their executions succeed is not observable without an indexer.",
+    "our_arguments": "Both attempts sent the same input as the earlier successful diagnostics: command get_prices, tokens [wrap.near], max_age_secs 300, default resource limits. A call through request_price_data rather than oracle_call is the only difference found; both paths reach the same call_outlayer routine.",
+    "conclusion": "No cause on our side was found. The worker reported a plain 'Failed' for the price-oracle project, version 3585b3890f49748713b43ccb9b0ef4148f317d62f4d598db80fdaffc3f3185a0. It may be transient or specific to that worker version or its upstream price source."
+  },
+  "observations_for_scope_decisions": [
+    "The oracle reference is null unless someone pays for a refresh, so every live publication needs a paid refresh first, and every settlement is a second paid worker call. A hosted service therefore needs a funded refresher with a full-access key, which cannot be a restricted key because a function-call key cannot attach a deposit.",
+    "Contract panics reach the receipt as 'WebAssembly trap: An `unreachable` opcode was executed.' with no message and no log. Interface code that matches the text of a failure (for example 'challenge window has closed') cannot work on testnet, and the runbook's expectation of 'Decision must be yes or no' from the authorization probe cannot be observed.",
+    "The public RPC https://rpc.testnet.near.org answers 429 with a deprecation warning under light use; https://test.rpc.fastnear.com worked throughout."
+  ]
+}

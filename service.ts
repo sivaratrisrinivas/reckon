@@ -15,6 +15,16 @@ const demoLocal = process.env.RECKON_DEMO_LOCAL === '1';
 if (!demoLocal && existsSync('.env')) process.loadEnvFile('.env');
 const stateDirectory = process.env.RECKON_STATE_DIR ?? '.local';
 
+const chainMode = process.env.RECKON_CHAIN ?? 'sandbox';
+if (chainMode === 'testnet') {
+  if (demoLocal) throw new Error('The credential-free local demo never runs on testnet');
+  // Testnet mode has its own entry: no sandbox, no service-held wallet and no test endpoints.
+  await import('./testnet-main.js');
+  await new Promise<never>(() => undefined);
+} else if (chainMode !== 'sandbox') {
+  throw new Error('RECKON_CHAIN must be sandbox or testnet');
+}
+
 const providerMode = (process.env.RECKON_PROVIDER_MODE ?? 'fixture') as ProviderMode;
 if (providerMode !== 'fixture' && providerMode !== 'live') throw new Error('RECKON_PROVIDER_MODE must be fixture or live');
 // Checked before the live-credential checks so the simulation names its own refusal, not a missing key.
@@ -23,6 +33,7 @@ if (providerMode === 'live' && (!process.env.NEAR_AI_API_KEY || !process.env.NEA
   throw new Error('Live mode requires NEAR_AI_API_KEY and NEAR_AI_MODEL; scripted forecasts are disabled.');
 }
 if (providerMode === 'live' && !process.env.BLOB_READ_WRITE_TOKEN) throw new Error('Live mode requires BLOB_READ_WRITE_TOKEN for public evidence storage.');
+if (demoLocal && providerMode !== 'fixture') throw new Error('The credential-free local simulation only runs fixture providers.');
 let fixtureStorageUnavailable = false;
 let testWalletNetworkId: string | null = null;
 
