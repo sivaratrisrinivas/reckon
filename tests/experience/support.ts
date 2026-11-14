@@ -2,6 +2,8 @@ import {expect, type APIRequestContext, type Page} from '@playwright/test';
 
 export interface PredictionView {
   id: string;
+  challenger_stake: string;
+  agent_stake: string;
   challenger_account_id: string | null;
   challenge_deadline_ns: string;
   deadline_ns: string;
@@ -43,7 +45,8 @@ export async function life(request: APIRequestContext): Promise<{dead: boolean; 
 
 /** Settle any round a previous test left open so the next test starts from an idle agent. */
 export async function ensureIdle(request: APIRequestContext): Promise<void> {
-  await paymentScenario(request, 'restore').catch(() => undefined);
+  // Only rebuild the challenger account when a previous test left it deleted.
+  if ((await request.get('/api/wallet/balance')).status() !== 200) await paymentScenario(request, 'restore').catch(() => undefined);
   await settlementScenario(request, 'below');
   for (let attempt = 0; attempt < 4 && await activePrediction(request); attempt += 1) {
     await advance(request, 130);
@@ -167,6 +170,8 @@ export async function auditControlsAndText(page: Page): Promise<string[]> {
 
 /** Computes WCAG contrast of every visible text node from computed styles; disabled controls are exempt. */
 export async function auditContrast(page: Page): Promise<string[]> {
+  // A panel fading in is briefly translucent; contrast belongs to the settled state.
+  await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => undefined))));
   return page.evaluate(() => {
     type Color = {r: number; g: number; b: number; a: number};
     const parse = (value: string): Color => {
@@ -236,7 +241,8 @@ export async function auditContrast(page: Page): Promise<string[]> {
 export async function visiblePrimaryActions(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const scope: ParentNode = document.querySelector('dialog:modal') ?? document;
-    return [...scope.querySelectorAll('button.primary')]
+    // A busy or inert control (aria-disabled or disabled) reports progress; it is not an available action.
+    return [...scope.querySelectorAll('button.primary:not([aria-disabled="true"]):not(:disabled)')]
       .filter(button => button.getClientRects().length > 0 && getComputedStyle(button).visibility !== 'hidden')
       .map(button => (button.textContent ?? '').trim());
   });
@@ -274,6 +280,12 @@ export interface StateAuditOptions {
 /** Runs the shared accessibility audit for the state currently on screen. */
 export async function auditState(page: Page, name: string, options: StateAuditOptions): Promise<void> {
   const original = page.viewportSize() ?? {width: 1280, height: 720};
+  // Layout shift since the previous audit, read before the viewport and text-size sweep causes shifts of its own.
+  const shifted = await page.evaluate(() => {
+    const target = globalThis as unknown as {__reckonShift?: number; __reckonShiftBase?: number};
+    return (target.__reckonShift ?? 0) - (target.__reckonShiftBase ?? 0);
+  });
+  expect(shifted, `${name}: layout shift since the previous state`).toBeLessThanOrEqual(0.1);
   const primary = await visiblePrimaryActions(page);
   expect(primary.length, `${name}: at most one primary action, found ${JSON.stringify(primary)}`).toBeLessThanOrEqual(options.maximumPrimaryActions);
   expect(await auditContrast(page), `${name}: contrast and metadata size`).toEqual([]);
@@ -291,4 +303,28 @@ export async function auditState(page: Page, name: string, options: StateAuditOp
     }
     await page.setViewportSize(original);
   }
+  await page.evaluate(() => {
+    const target = globalThis as unknown as {__reckonShift?: number; __reckonShiftBase?: number};
+    target.__reckonShiftBase = target.__reckonShift ?? 0;
+  });
+}
+
+/** WCAG contrast ratio between two CSS colours given as #rrggbb or rgb(r, g, b). */
+export function contrastRatio(foreground: string, background: string): number {
+  const channels = (value: string): number[] => {
+    const hex = value.trim().match(/^#([0-9a-f]{6})$/i);
+    if (hex) return [0, 2, 4].map(offset => parseInt(hex[1].slice(offset, offset + 2), 16));
+    const rgb = value.match(/rgba?\(([^)]+)\)/);
+    if (!rgb) throw new Error(`Unsupported colour: ${value}`);
+    return rgb[1].split(/[\s,/]+/).filter(Boolean).slice(0, 3).map(Number);
+  };
+  const luminance = (value: string): number => {
+    const [r, g, b] = channels(value).map(channel => {
+      const unit = channel / 255;
+      return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [lighter, darker] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (lighter + 0.05) / (darker + 0.05);
 }

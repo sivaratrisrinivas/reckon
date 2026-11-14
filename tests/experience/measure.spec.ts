@@ -121,7 +121,7 @@ async function activeWindow(page: Page, name: string, action: () => Promise<void
   await action();
   await page.waitForTimeout(settleMs);
   const intervals = await page.evaluate(() => (globalThis as unknown as {__probe: ProbeApi}).__probe.stop());
-  return {window: name, ...summarize(intervals), intervals};
+  return {intervals, summary: {window: name, ...summarize(intervals)}};
 }
 
 /** Time from the press to the first visible acknowledgement (the frame after the first DOM change). */
@@ -200,7 +200,6 @@ async function runProfile(profile: Profile, browser: import('@playwright/test').
   const metric = (snapshot: typeof before, name: string) => snapshot.metrics.find(entry => entry.name === name)?.value ?? 0;
   const quiet = Object.fromEntries(['LayoutCount', 'RecalcStyleCount', 'TaskDuration', 'ScriptDuration'].map(name => [name, round(metric(after, name) - metric(before, name))]));
 
-  settlementScenarioPlaceholder();
   windows.push(await activeWindow(page, 'waiting-to-result', async () => {
     await advance(request, 300);
     await expect(page.locator('#state-label')).toHaveText('Resolved', {timeout: 30_000});
@@ -231,7 +230,7 @@ async function runProfile(profile: Profile, browser: import('@playwright/test').
     transferred_initial_load: initialTransfer,
     transferred_whole_journey: journeyTransfer,
     active_frames_overall: active,
-    active_frame_windows: windows.map(({intervals: _intervals, ...summary}) => summary),
+    active_frame_windows: windows.map(entry => entry.summary),
     local_feedback_ms: feedback,
     quiet_window_3s: {description: 'Browser work counters over 3 s with nothing changing, no animation frame probe running', ...quiet},
     layout_shift: {
@@ -244,8 +243,6 @@ async function runProfile(profile: Profile, browser: import('@playwright/test').
     long_animation_frames: finalProbe.longFrames,
   };
 }
-
-function settlementScenarioPlaceholder(): void { /* The oracle fixture was set to "above" before the journey started. */ }
 
 test('emulated reference profiles meet or honestly report the frame, feedback, shift and byte targets', async ({browser, request}) => {
   test.setTimeout(900_000);

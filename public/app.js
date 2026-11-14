@@ -176,6 +176,10 @@ function setAvailableAction() {
   // The control the visitor used keeps its place (and focus) as a busy indicator; the other steps aside.
   ask.hidden = hidden || (inFlight && busyControl === watch);
   watch.hidden = hidden || (inFlight && busyControl !== watch);
+  // Recovering an existing payment liability outranks starting a new round, so only one of them is primary.
+  const paymentOwed = currentPrediction?.payment?.status === 'pending';
+  ask.classList.toggle('primary', !paymentOwed);
+  ask.classList.toggle('secondary', paymentOwed);
   if (inFlight) setBusy(busyControl === watch ? watch : ask, requestInFlight ? 'Thinking…' : 'Preparing local wallet…');
   else {
     clearBusy(ask);
@@ -723,6 +727,9 @@ async function approveChallenge() {
     }
   } finally {
     challengeInFlight = false;
+    // The visitor's own action is complete and the offer is over: read the outcome from the status region
+    // rather than leaving focus on an inert button.
+    if (currentPrediction?.challenger_account_id) $('state-region').focus({preventScroll: true});
     renderChallengeOffer();
     restoreFocus(true);
     void refreshWalletBalance();
@@ -962,6 +969,7 @@ async function retryPaymentForPrediction(predictionId) {
     await refreshPublicRecord();
   } finally {
     paymentRetryInFlight = false;
+    if (currentPrediction?.id === predictionId && currentPrediction.payment?.status === 'paid') $('state-region').focus({preventScroll: true});
     renderPublicRecord();
     if (currentPrediction?.id === predictionId) renderPaymentRecovery(currentPrediction);
     restoreFocus();

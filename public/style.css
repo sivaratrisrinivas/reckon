@@ -136,6 +136,8 @@ a { color: var(--text); text-underline-offset: .2em; }
 .forecast-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; min-height: 4.5rem; }
 .forecast-actions button { margin: .5rem 0 .25rem; }
 
+.primary, .secondary { max-width: 100%; overflow-wrap: anywhere; }
+
 .primary {
   min-height: 3.25rem;
   margin: .5rem 0 .25rem;
@@ -190,6 +192,7 @@ dialog h3:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; 
 .limitation { max-width: 75ch; font-size: .875rem; }
 .record { padding: 3rem 0 2rem; }
 .record > p { max-width: 78ch; }
+.record > p > a { display: inline-flex; align-items: center; min-height: 2.75rem; }
 .prediction-record { display: grid; gap: .75rem; margin: 1.5rem 0; padding: 0; list-style: none; }
 .record-entry { padding: 1rem 1.25rem; border: 1px solid var(--border); background: var(--surface); }
 .record-entry h3 { margin: 0; font-size: 1rem; }
@@ -211,17 +214,20 @@ footer {
 @keyframes panel-in { from { opacity: 0; } to { opacity: 1; } }
 
 @media (max-width: 700px) {
-  header { align-items: flex-start; padding: 1rem; }
-  main { padding: 2rem 1rem 1rem; }
-  .scene, .forecast { margin-top: 2rem; padding: 1.25rem; }
+  /* Nested paddings are fixed pixels here: in rem they would multiply with 200% text and leave no room for content. */
+  header { align-items: flex-start; padding: 1rem 16px; }
+  main { padding: 2rem 16px 1rem; }
+  .scene, .forecast { margin-top: 2rem; padding: 16px; }
   .partition { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .forecast-actions { align-items: stretch; flex-direction: column; }
   .forecast-actions button { width: 100%; }
   .glyph { width: 65px; height: 65px; }
   .glyph span { width: 32px; height: 32px; }
-  footer { padding: 1.5rem 1rem; }
-  .prediction { padding: 1rem; }
-  .challenge-panel { padding: 1rem; }
+  footer { padding: 1.5rem 16px; }
+  .prediction { padding: 16px 0 0; border: 0; border-top: 1px solid var(--border); background: transparent; }
+  .challenge-panel { padding: 12px; }
+  .wallet-dialog { width: calc(100% - 16px); max-height: calc(100% - 16px); }
+  .wallet-dialog-content { padding: 16px; }
   /* Financial terms read as a ledger on phones: label left, exact figure right, so consent terms and the action fit one screen. */
   .terms { display: block; margin: 1rem 0; }
   .terms > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 1rem; padding: .35rem 0; border-bottom: 1px solid var(--border); }
