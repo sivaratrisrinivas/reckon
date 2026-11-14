@@ -8,20 +8,20 @@ import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {KeyPairEd25519} from 'near-workspaces';
 import {addKey, createAccount, deleteKey, deployContract, fullAccessKey, functionCall, transfer, type Action} from 'near-api-js/lib/transaction.js';
-import {base_encode} from 'near-api-js/lib/utils/serialize.js';
 import type {OnChainPrediction} from '../forecast.js';
 import {localSigner} from '../local-signers.js';
-import {describeStatus, NEAR, RpcError, SandboxChain, type ChainTransaction, type Signer, type TransactionOutcome} from './demo-local-chain.js';
+import {describeStatus, NEAR, RpcError, SandboxChain, wasmExports, type ChainTransaction, type Signer, type TransactionOutcome} from './demo-local-chain.js';
 
 // ---------------------------------------------------------------------------
 // Fixed parameters of the simulation. Every value here is simulated or accelerated.
 // ---------------------------------------------------------------------------
 const repositoryRoot = resolve(fileURLToPath(import.meta.url), '..', '..');
 const PRODUCTION_WASM = 'contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm';
-const ORACLE_FIXTURE_WASM = 'contract/target/wasm32-unknown-unknown/release/reckon_oracle_fixture.wasm';
+const FAULT_WASM = 'contract/target/wasm32-unknown-unknown/release/reckon_contract_callback_fault.wasm';
+const ORACLE_FIXTURE_WASM ='contract/target/wasm32-unknown-unknown/release/reckon_oracle_fixture.wasm';
 // 100 NEAR of play money lasts 2,400 simulated seconds of idle upkeep instead of fifteen days.
 const IDLE_LIFE_SECONDS = 2_400;
-const HARD_BUDGET_SECONDS = Number(process.env.RECKON_DEMO_BUDGET_SECONDS ?? 900);
+const HARD_BUDGET_SECONDS = Number(process.env.RECKON_DEMO_BUDGET_SECONDS ?? 1200);
 const SECONDS_BEFORE_DEATH_AT_PUBLICATION = 100;
 const ORACLE_REQUEST_DEPOSIT = NEAR / 50n;
 const PREDICTION_HORIZON_SECONDS = 300;
@@ -57,12 +57,19 @@ let abortReason: string | null = null;
 let holding = false;
 const elapsed = () => Math.round((Date.now() - startedAt) / 1000);
 const log = (line = '') => console.log(line);
-const heading = (line: string) => log(`\n== ${line}`);
+const heading = (line: string) => log(`\n== ${line}  (t+${elapsed()}s)`);
 
-function expect(condition: unknown, description: string, evidence?: string): asserts condition {
-  if (!condition) throw new DemoFailure(`ASSERTION FAILED: ${description}${evidence ? ` [${evidence}]` : ''}`);
+// Assertions never stop the run: every failure is listed at the end and the command exits 1.
+const failures: string[] = [];
+function expect(condition: unknown, description: string, evidence?: string): void {
+  const detail = evidence ? `  [${evidence}]` : '';
+  if (!condition) {
+    failures.push(`${description}${detail}`);
+    log(`  FAIL ${description}${detail}`);
+    return;
+  }
   assertionCount += 1;
-  log(`  PASS ${description}${evidence ? `  [${evidence}]` : ''}`);
+  log(`  PASS ${description}${detail}`);
 }
 
 function near(yocto: bigint): string {
@@ -295,8 +302,26 @@ async function run(): Promise<void> {
     const target = (await direct.latest()).height + count;
     await waitFor(`${count} more blocks`, async () => (await direct.latest()).height >= target);
   }
+  // Payment attempts by the keeper move money for a few blocks. Wait until none is in flight and no new
+  // attempt starts, so a balance is never read in the middle of a transfer.
+  async function paymentActivity(): Promise<{inFlight: bigint; signature: string}> {
+    const records = await direct.view<OnChainPrediction[]>(agentId, 'list_predictions', {start_id: '1', limit: '50'});
+    const flying = records.filter(prediction => prediction.payment?.status === 'pending' && prediction.payment.transfer_in_flight);
+    return {
+      inFlight: flying.reduce((total, prediction) => total + BigInt(prediction.payment!.amount), 0n),
+      signature: records.map(prediction => `${prediction.id}:${prediction.payment?.attempt_id}:${prediction.payment?.status}:${prediction.payment?.transfer_in_flight}`).join('|'),
+    };
+  }
+  async function settleBalances(): Promise<void> {
+    for (let pass = 0; pass < 25; pass += 1) {
+      const first = await paymentActivity();
+      await waitBlocks(2); // let gas-refund and transfer-refund receipts land
+      const second = await paymentActivity();
+      if (first.inFlight === 0n && second.inFlight === 0n && first.signature === second.signature) return;
+    }
+  }
   async function snapshot(): Promise<Snapshot> {
-    await waitBlocks(3); // let gas-refund and transfer-refund receipts land
+    await settleBalances();
     const [life, state, challengerTotal, lateTakerTotal, latest] = await Promise.all([lifeNow(), direct.accountState(agentId), totalOf(challenger.accountId), totalOf(lateTaker.accountId), direct.latest()]);
     return {life, contractTotal: state.total, contractAvailable: state.available, challenger: challengerTotal, lateTaker: lateTakerTotal ?? 0n, height: latest.height};
   }
@@ -304,9 +329,10 @@ async function run(): Promise<void> {
   let unsolicitedFunds = 0n;
   // Compare recorded obligations with the contract account's actual funds.
   async function assertConserved(label: string): Promise<void> {
-    await waitBlocks(3);
+    await settleBalances();
     const life = await lifeNow();
     const state = await direct.accountState(agentId);
+    const inFlight = (await paymentActivity()).inFlight;
     const obligations = obligationsOf(life);
     const reserve = BigInt(life.operational_reserve);
     const reserveUsed = obligations + reserve - state.total + unsolicitedFunds;
@@ -316,9 +342,9 @@ async function run(): Promise<void> {
       `held ${near(state.total)} <= obligations ${near(obligations)} + reserve ${near(reserve)} + unsolicited ${near(unsolicitedFunds)}`,
     );
     expect(
-      obligations <= state.available,
+      obligations - inFlight <= state.available,
       `${label}: every recorded obligation (including ${near(BigInt(life.pending_payment_liabilities))} pending) is backed by available funds`,
-      `obligations ${near(obligations)} <= available ${near(state.available)}`,
+      `obligations ${near(obligations)}${inFlight > 0n ? ` less ${near(inFlight)} mid-transfer` : ''} <= available ${near(state.available)}`,
     );
     log(`       operational reserve consumed so far by gas, storage and oracle fees: ${near(reserveUsed)} of ${near(reserve)}`);
   }
@@ -329,8 +355,7 @@ async function run(): Promise<void> {
     let verdict: string;
     try {
       const outcome = await direct.send(signer, receiver, actions, options);
-      if (outcome.succeeded) throw new DemoFailure(`ASSERTION FAILED: ${description} unexpectedly succeeded (tx ${outcome.hash})`);
-      verdict = `tx ${outcome.hash}: ${describeStatus(outcome.status)}`;
+      verdict = outcome.succeeded ? `UNEXPECTEDLY SUCCEEDED (tx ${outcome.hash})` : `tx ${outcome.hash}: ${describeStatus(outcome.status)}`;
     } catch (error) {
       if (!(error instanceof RpcError)) throw error;
       verdict = error.message;
@@ -354,9 +379,25 @@ async function run(): Promise<void> {
   // -------------------------------------------------------------------------
   heading('Baseline: the compiled contract, its keys and its funds');
   const wasmBytes = await readFile(join(repositoryRoot, PRODUCTION_WASM));
-  const expectedCodeHash = base_encode(createHash('sha256').update(wasmBytes).digest());
+  const faultWasmBytes = await readFile(join(repositoryRoot, FAULT_WASM));
+  const deployedCode = await direct.code(agentId);
   const baselineState = await direct.accountState(agentId);
-  expect(baselineState.codeHash === expectedCodeHash, 'the deployed code hash equals the repository production Wasm (no test-only fault build)', `${agentId} deployed ${baselineState.codeHash}, expected ${expectedCodeHash}`);
+  const deployedExports = wasmExports(deployedCode);
+  const productionExports = wasmExports(wasmBytes);
+  log(`       deployed on ${agentId}: ${deployedCode.length} bytes, chain code hash ${baselineState.codeHash} (the sandbox stores a normalised copy, so this is not the file's SHA-256)`);
+  log(`       repository production Wasm: ${wasmBytes.length} bytes, SHA-256 ${createHash('sha256').update(wasmBytes).digest('hex')}`);
+  expect(
+    deployedExports.length > 0 && deployedExports.join() === productionExports.join(),
+    `the deployed contract exports exactly the ${productionExports.length} functions of the repository production Wasm`,
+    deployedExports.join(', '),
+  );
+  expect(
+    wasmExports(faultWasmBytes).includes('set_payment_callback_fault') && !deployedExports.includes('set_payment_callback_fault'),
+    'the test-only callback-fault build would add set_payment_callback_fault; the deployed contract does not export it',
+  );
+  const adminLike = deployedExports.filter(name => /withdraw|upgrade|owner|admin|migrate|add_key|delete_key|deploy/i.test(name));
+  expect(adminLike.length === 0, 'the deployed contract exports no withdrawal, upgrade, owner, administrative or key-management method', adminLike.join(', ') || 'none');
+  const deployedCodeHash = baselineState.codeHash;
   const baselineKeys = await direct.accessKeys(agentId);
   const fullAccessEntry = baselineKeys.find(entry => entry.permission === 'FullAccess');
   const restrictedEntry = baselineKeys.find(entry => typeof entry.permission === 'object');
@@ -487,7 +528,7 @@ async function run(): Promise<void> {
   expect(BigInt(summary2.valid_outcomes) === BigInt(summary1.valid_outcomes) + 1n && summary2.correct_outcomes === summary1.correct_outcomes, 'the missed forecast counts as a valid, incorrect outcome', JSON.stringify(summary2));
   const settlementTx2 = await evidenceTransactions(round2.afterTake.height, transaction => transaction.methods.includes('request_settlement') && transaction.receiverId === agentId);
   expect(settlementTx2.length === 1, 'the settlement transaction and its payout receipts are on chain', `tx ${settlementTx2[0]?.hash} by ${settlementTx2[0]?.signerId}`);
-  printReceipts(await direct.outcome(settlementTx2[0].hash, settlementTx2[0].signerId), challenger.accountId);
+  if (settlementTx2[0]) printReceipts(await direct.outcome(settlementTx2[0].hash, settlementTx2[0].signerId), challenger.accountId);
   await assertConserved('after the challenger win');
 
   // Round 3: void refund ---------------------------------------------------------
@@ -510,7 +551,7 @@ async function run(): Promise<void> {
   expect(summary3.valid_outcomes === summary2.valid_outcomes && summary3.correct_outcomes === summary2.correct_outcomes, 'the void is excluded from accuracy', JSON.stringify(summary3));
   const voidTx = await evidenceTransactions(round3.afterTake.height, transaction => transaction.methods.includes('void_unsettled_prediction') && transaction.receiverId === agentId && transaction.signerId !== lateTaker.accountId);
   expect(voidTx.length === 1, 'the void transaction and refund receipt are on chain', `tx ${voidTx[0]?.hash} by ${voidTx[0]?.signerId}`);
-  printReceipts(await direct.outcome(voidTx[0].hash, voidTx[0].signerId), challenger.accountId);
+  if (voidTx[0]) printReceipts(await direct.outcome(voidTx[0].hash, voidTx[0].signerId), challenger.accountId);
   await assertConserved('after the void refund');
 
   // Round 4: recoverable payment failure ---------------------------------------------------
@@ -599,7 +640,7 @@ async function run(): Promise<void> {
   await attempt(agentFullAccess, agentId, [deployContract(await readFile(join(repositoryRoot, ORACLE_FIXTURE_WASM)))], 'AccessKeyNotFound', 'the old authority can no longer deploy or replace the contract', {nonce: oldKeyNonce + 11});
   await attempt(agentFullAccess, agentId, [addKey(lateTaker.key.getPublicKey(), fullAccessKey())], 'AccessKeyNotFound', 'the old authority can no longer add keys', {nonce: oldKeyNonce + 12});
   expect(JSON.stringify(await direct.accessKeys(agentId)) === JSON.stringify(keysAfterLock) && (await direct.accountState(agentId)).total === totalAfterLock, 'the failed old-authority attempts changed no keys, code or funds');
-  expect((await direct.accountState(agentId)).codeHash === expectedCodeHash, 'the deployed code is still the repository production Wasm', expectedCodeHash);
+  expect((await direct.accountState(agentId)).codeHash === deployedCodeHash, 'the deployed code is unchanged by the lock', deployedCodeHash);
   await attempt({accountId: agentId, key: predictionKey}, agentId, [transfer(NEAR)], 'RequiresFullAccess', 'the remaining restricted key still cannot transfer');
 
   heading('Existing obligations are recovered after death and after the lock');
@@ -629,15 +670,17 @@ async function run(): Promise<void> {
   const successful = paidAttempt.filter(entry => entry.outcome.receipts.some(receipt => receipt.outcome.executor_id === challenger.accountId && describeStatus(receipt.outcome.status) === 'Success'));
   log(`       ${paidAttempt.length} retry_payment transaction(s) in total; ${successful.length} delivered the payout`);
   expect(successful.length === 1, 'exactly one retry transaction delivered the payout (never twice)', `tx ${successful[0]?.transaction.hash} by ${successful[0]?.transaction.signerId}`);
-  printReceipts(successful[0].outcome, challenger.accountId);
+  if (successful[0]) printReceipts(successful[0].outcome, challenger.accountId);
   await assertConserved('after every liability was confirmed');
   const finalLife = await lifeNow();
   expect(finalLife.dead && BigInt(finalLife.remaining_life_ns) === 0n, 'the agent is permanently dead at the end of the life', describeLife(finalLife));
   const finalSummary = await summaryNow();
   expect(finalSummary.published === '5' && finalSummary.valid_outcomes === '4' && finalSummary.correct_outcomes === '2', 'the permanent record: 5 published, 4 valid outcomes, 2 correct, 1 void', JSON.stringify(finalSummary));
 
+  if (failures.length > 0) throw new DemoFailure(`${failures.length} assertion(s) failed; ${assertionCount} passed.`);
+
   heading('Summary');
-  log('  1. agent win         prediction #1 outcome NO,   no payment');
+  log('  1. agent win        prediction #1 outcome NO,   no payment');
   log(`  2. challenger win    prediction #2 outcome YES,  ${near(payout2)} paid to ${challenger.accountId}`);
   log(`  3. void refund       prediction #3 void,         ${near(refund3)} refunded to ${challenger.accountId}`);
   log(`  4. payment failure   prediction #4 outcome YES,  ${near(liability4)} failed, stayed owed, recovered after death`);
@@ -678,6 +721,7 @@ async function main(): Promise<number> {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`\n${message}`);
     if (!(error instanceof DemoFailure) && error instanceof Error && error.stack) console.error(error.stack);
+    if (failures.length > 0) console.error(`\nFailed assertions:\n${failures.map(failure => `  - ${failure}`).join('\n')}`);
     if (serviceLog && service) console.error(`\nLast service output:\n${serviceLog.trim().split('\n').slice(-15).join('\n')}`);
     console.error(`DEMO RESULT: FAIL after ${elapsed()}s (${assertionCount} assertions had passed)`);
   } finally {

@@ -75,6 +75,12 @@ export class SandboxChain {
     return {total, storageUsage: account.storage_usage, available: total > storageStake ? total - storageStake : 0n, codeHash: account.code_hash};
   }
 
+  /** The contract code currently deployed on an account, as the chain stores it. */
+  async code(accountId: string): Promise<Buffer> {
+    const result = await this.rpc<{code_base64: string}>('query', {request_type: 'view_code', finality: 'optimistic', account_id: accountId});
+    return Buffer.from(result.code_base64, 'base64');
+  }
+
   async accessKeys(accountId: string): Promise<AccessKeyInfo[]> {
     const list = await this.rpc<{keys: {public_key: string; access_key: {nonce: number; permission: AccessKeyInfo['permission']}}[]}>('query', {
       request_type: 'view_access_key_list', finality: 'optimistic', account_id: accountId,
@@ -103,7 +109,7 @@ export class SandboxChain {
     return {
       hash: base_encode(digest),
       signerId: signer.accountId,
-      succeeded: typeof result.status === 'object' && result.status !== null && 'SuccessValue' in result.status,
+      succeeded: isSuccess(result.status),
       status: result.status,
       receipts: result.receipts_outcome,
     };
@@ -120,7 +126,7 @@ export class SandboxChain {
     return {
       hash,
       signerId,
-      succeeded: typeof result.status === 'object' && result.status !== null && 'SuccessValue' in result.status,
+      succeeded: isSuccess(result.status),
       status: result.status,
       receipts: result.receipts_outcome,
     };
@@ -160,6 +166,43 @@ export class SandboxChain {
     }
     return found;
   }
+}
+
+function isSuccess(status: unknown): boolean {
+  return typeof status === 'object' && status !== null && ('SuccessValue' in status || 'SuccessReceiptId' in status);
+}
+
+/** Names of the functions a Wasm module exports, read from its export section. */
+export function wasmExports(wasm: Buffer): string[] {
+  let offset = 8;
+  const unsigned = (): number => {
+    let value = 0;
+    let shift = 0;
+    for (;;) {
+      const byte = wasm[offset++];
+      value += (byte & 0x7f) * 2 ** shift;
+      if ((byte & 0x80) === 0) return value;
+      shift += 7;
+    }
+  };
+  const names: string[] = [];
+  while (offset < wasm.length) {
+    const id = wasm[offset++];
+    const size = unsigned();
+    const end = offset + size;
+    if (id === 7) {
+      for (let remaining = unsigned(); remaining > 0; remaining -= 1) {
+        const length = unsigned();
+        const name = wasm.subarray(offset, offset + length).toString('utf8');
+        offset += length;
+        const kind = wasm[offset++];
+        unsigned();
+        if (kind === 0) names.push(name);
+      }
+    }
+    offset = end;
+  }
+  return names.sort();
 }
 
 export function describeStatus(status: unknown): string {
