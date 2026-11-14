@@ -228,6 +228,7 @@ async function run(): Promise<void> {
   }
   workDirectory = await mkdtemp(join(tmpdir(), 'rkd-'));
   log(`  Private work directory (removed on exit): ${workDirectory}`);
+  log(`  Orchestrator process id (SIGINT stops a --hold run cleanly): ${process.pid}`);
   log('  No .env file is read and credentials in your environment are not passed to the service.');
 
   heading('Preflight and build');

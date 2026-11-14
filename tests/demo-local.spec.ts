@@ -37,6 +37,7 @@ async function waitForOutput(run: Run, pattern: RegExp, timeoutMs: number): Prom
   for (;;) {
     const match = pattern.exec(run.output());
     if (match) return match;
+    if (run.child.exitCode !== null) throw new Error(`The demo exited with code ${run.child.exitCode} before printing ${pattern}:\n${run.output()}`);
     if (Date.now() > until) throw new Error(`Timed out waiting for ${pattern}:\n${run.output()}`);
     await new Promise(done => setTimeout(done, 500));
   }
@@ -95,7 +96,10 @@ test('runs a complete simulated life to verified death and cleans up', async ({p
     await expect(page.getByText('Payment receipt confirmed on chain').first()).toBeVisible();
     await expect(page.getByRole('button', {name: 'Ask Reckon'})).toBeHidden();
   } finally {
-    if (run.child.pid && run.child.exitCode === null) process.kill(-run.child.pid, 'SIGINT');
+    // Stop only the orchestrator, as Ctrl-C would, so its own exit status (not npm's signal death) is observed.
+    const orchestrator = Number(/Orchestrator process id[^:]*: (\d+)/.exec(run.output())?.[1]);
+    if (orchestrator > 0 && run.child.exitCode === null) process.kill(orchestrator, 'SIGINT');
+    else if (run.child.pid && run.child.exitCode === null) process.kill(-run.child.pid, 'SIGINT');
   }
   expect(await run.exited).toBe(0);
   const finished = run.output();
