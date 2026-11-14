@@ -33,7 +33,7 @@ assert.throws(() => sizeAllowance(measured, assumptions, '77'), /No measured req
 // Reserve parts in units of 0.0001 NEAR.
 // Code: 400,000 bytes x 0.00001 = 4 NEAR = 40,000. State: 100 x 500 bytes x 0.00001 x 1.5 = 0.75 NEAR = 7,500.
 // Publication gas: 110 calls x 0.0001 NEAR x 3 x 2 = 0.066 NEAR = 660. Oracle: 100 x 0.0015 x 2 = 0.3 NEAR = 3,000.
-// Deposit float 0.02 NEAR = 200. One-publication floor 0.06 NEAR = 600. Subtotal 52,000 = 5.2 NEAR; with a 20% margin 6.24 NEAR, already a multiple of the 0.01 NEAR rounding step.
+// Deposit float 0.02 NEAR = 200. One-publication floor 0.06 NEAR = 600. Subtotal 40,000 + 7,500 + 660 + 3,000 + 200 + 600 = 51,960 = 5.196 NEAR; with a 20% margin 6.2352 NEAR, which rounds up to 6.24 NEAR.
 const reserve = sizeReserve(measured, live, assumptions);
 assert.deepEqual(reserve.components_yocto, {
   code_storage_stake_locked_at_deployment_yocto: (40_000n * unit).toString(),
@@ -43,6 +43,6 @@ assert.deepEqual(reserve.components_yocto, {
   oracle_request_deposit_float_yocto: (200n * unit).toString(),
   minimum_free_funds_for_one_publication_yocto: (600n * unit).toString(),
 });
-assert.equal(reserve.subtotal_yocto, (52_000n * unit).toString());
+assert.equal(reserve.subtotal_yocto, (51_960n * unit).toString());
 assert.equal(reserve.proposed_operational_reserve_yocto, (62_400n * unit).toString());
 console.log('Reserve and allowance sizing matches hand-worked examples');

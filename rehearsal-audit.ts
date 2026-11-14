@@ -1,6 +1,11 @@
 // Static audits for the deployed Reckon account. Each function is pure: it inspects bytes, text or a key list
 // that the caller obtained locally or from a read-only RPC query, and returns human-readable violations.
 
+// Node provides the WebAssembly global at run time; the project's type libraries do not declare it.
+declare const WebAssembly: {
+  Module: {new (bytes: Uint8Array): unknown; exports(module: unknown): {name: string; kind: string}[]};
+};
+
 /** The reviewed public surface of the production Wasm. Adding a method requires changing this list deliberately. */
 export const REVIEWED_EXPORTS = [
   'accrue',
@@ -29,7 +34,7 @@ export const REVIEWED_EXPORTS = [
 const ADMINISTRATIVE_NAME = /withdraw|upgrade|migrate|owner|admin|sweep|rescue|emergency|drain|deploy|delete|_key|set_|grant|revoke|pause|resume/;
 
 export function auditExports(wasm: Uint8Array): string[] {
-  const exported = WebAssembly.Module.exports(new WebAssembly.Module(wasm as BufferSource))
+  const exported = WebAssembly.Module.exports(new WebAssembly.Module(wasm))
     .filter(item => item.kind === 'function')
     .map(item => item.name);
   const violations: string[] = [];

@@ -78,9 +78,10 @@ try {
   async function take(prediction: {id: string; challenger_stake: string}, who: NearAccount): Promise<OperationRecord> {
     return measure(who, async () => burnOf(await who.callRaw(contract, 'challenge_prediction', {prediction_id: prediction.id}, {attachedDeposit: BigInt(prediction.challenger_stake), gas: 30n * TGAS}) as never));
   }
-  const callAs = (who: NearAccount, method: string, id: string) => measure(who, async () => {
+  // A stalled oracle request ends in a failed receipt by design, so its success is not asserted.
+  const callAs = (who: NearAccount, method: string, id: string, expectSuccess = true) => measure(who, async () => {
     const result = await who.callRaw(contract, method, {prediction_id: id}, {gas: PUBLISH_GAS});
-    assert(result.succeeded, `${method} must succeed: ${result.summary()}`);
+    if (expectSuccess) assert(result.succeeded, `${method} must succeed: ${result.summary()}`);
     return burnOf(result as never);
   });
 
@@ -133,7 +134,7 @@ try {
   await take(voided.prediction, refunded);
   await worker.provider.fastForward(300);
   await oracleScenario('stalled');
-  const voidRequest = await callAs(keeper, 'request_settlement', voided.prediction.id);
+  const voidRequest = await callAs(keeper, 'request_settlement', voided.prediction.id, false);
   await worker.provider.fastForward(121);
   const voidCall = await callAs(keeper, 'void_unsettled_prediction', voided.prediction.id);
   assert.equal((await contract.view<{payment: {status: string}; outcome: string}>('get_prediction', {id: voided.prediction.id})).payment.status, 'paid');

@@ -41,7 +41,7 @@ export async function keyAllowance(url: string, accountId: string, key: KeyPair)
 }
 
 export type SignedOutcome =
-  | {accepted: true; result: {status: unknown; transaction_outcome: {outcome: {gas_burnt: number; tokens_burnt: string}}; receipts_outcome: {outcome: {gas_burnt: number; tokens_burnt: string; status: unknown; logs: string[]}}[]}}
+  | {accepted: true; result: {status: unknown; transaction: {hash: string}; transaction_outcome: {outcome: {gas_burnt: number; tokens_burnt: string}}; receipts_outcome: {outcome: {gas_burnt: number; tokens_burnt: string; status: unknown; logs: string[]}}[]}}
   | {accepted: false; error: RpcFailure};
 
 /** Sign with exactly the given key and report whether the network accepted the transaction. */

@@ -79,7 +79,7 @@ try {
         name: `forbidden method ${method}`, receiver: self, actions: call(method, {}),
       })),
       {name: 'add a full-access key', receiver: self, actions: [addKey(key.getPublicKey(), fullAccessKey())], destructive: true},
-      {name: 'add another function-call key', receiver: self, actions: [addKey(KeyPairEd25519.fromRandom().getPublicKey(), functionCallAccessKey(self, [], null))], destructive: true},
+      {name: 'add another function-call key', receiver: self, actions: [addKey(KeyPairEd25519.fromRandom().getPublicKey(), functionCallAccessKey(self, []))], destructive: true},
       {name: 'deploy replacement code', receiver: self, actions: [deployContract(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))], destructive: true},
       {name: 'stake', receiver: self, actions: [stake(1n, key.getPublicKey())], destructive: true},
       {name: 'delete a key', receiver: self, actions: [deleteKey(key.getPublicKey())], destructive: true},

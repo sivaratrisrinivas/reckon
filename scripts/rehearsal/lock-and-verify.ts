@@ -4,13 +4,15 @@
 //
 //   tsx scripts/rehearsal/lock-and-verify.ts verify --confirm-disposable-testnet --network testnet --account <name> \
 //       --prediction-public-key ed25519:... [--wasm <path>] [--expect locked|unlocked]
+//   tsx scripts/rehearsal/lock-and-verify.ts prove-old-key-useless --confirm-disposable-testnet --network testnet --account <name> \
+//       --prediction-public-key ed25519:... --owner-key-file <path>     (run after the lock)
 //   tsx scripts/rehearsal/lock-and-verify.ts lock --confirm-disposable-testnet --network testnet --account <name> \
 //       --prediction-public-key ed25519:... --owner-key-file <path> --confirm-delete-full-access-key <name>
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import {base_encode} from 'near-api-js/lib/utils/serialize.js';
-import {deleteKey} from 'near-api-js/lib/transaction.js';
+import {addKey, deleteAccount, deleteKey, deployContract, fullAccessKey, transfer, type Action} from 'near-api-js/lib/transaction.js';
 import {accessKeyList, rpc, signAndSend} from '../../rehearsal-rpc.js';
 import {auditAccessKeys, auditExports} from '../../rehearsal-audit.js';
 import {appendLog, readKeyFile, required, say} from './common.js';
@@ -66,7 +68,30 @@ async function main(): Promise<void> {
     process.exitCode = (await verify(rpcUrl, account, predictionPublicKey, wasmPath, 'locked')) ? 0 : 1;
     return;
   }
-  throw new RehearsalRefusal('Use the step verify or lock.');
+  if (step === 'prove-old-key-useless') {
+    // After the lock the deleted owner key must authorize nothing. Each attempt is rejected before it can move anything.
+    const owner = await readKeyFile(required(options, '--owner-key-file'));
+    const attempts: [string, Action[]][] = [
+      ['transfer 1 yoctoNEAR', [transfer(1n)]],
+      ['add a full-access key', [addKey(owner.getPublicKey(), fullAccessKey())]],
+      ['deploy replacement code', [deployContract(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))]],
+      ['delete the account', [deleteAccount(account)]],
+    ];
+    const results = [];
+    for (const [name, actions] of attempts) {
+      const outcome = await signAndSend(rpcUrl, account, owner, account, actions);
+      const detail = !outcome.accepted
+        ? (outcome.error.data as {TxExecutionError?: {InvalidTxError?: Record<string, Record<string, unknown>>}} | undefined)?.TxExecutionError?.InvalidTxError?.InvalidAccessKeyError
+        : undefined;
+      results.push({attempt: name, accepted: outcome.accepted, rejection: detail ? Object.keys(detail)[0] : null});
+    }
+    const passed = results.every(result => !result.accepted && result.rejection === 'AccessKeyNotFound');
+    await appendLog(account, {step, account, results, passed});
+    say({step, results, passed});
+    process.exitCode = passed ? 0 : 1;
+    return;
+  }
+  throw new RehearsalRefusal('Use the step verify, lock or prove-old-key-useless.');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

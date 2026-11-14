@@ -28,7 +28,7 @@ type Prediction = {id: string; outcome: string | null; settlement_status: string
 function outcomeSummary(outcome: SignedOutcome) {
   if (!outcome.accepted) return {accepted: false, rejected: JSON.stringify(outcome.error.data ?? outcome.error.message)};
   const burnt = totalBurnt(outcome);
-  return {accepted: true, succeeded: succeeded(outcome), gas_burnt: burnt.gas, tokens_burnt_yocto: burnt.tokens, receipts: outcome.result.receipts_outcome.length};
+  return {accepted: true, transaction_hash: outcome.result.transaction.hash, succeeded: succeeded(outcome), gas_burnt: burnt.gas, tokens_burnt_yocto: burnt.tokens, receipts: outcome.result.receipts_outcome.length};
 }
 
 async function main(): Promise<void> {
