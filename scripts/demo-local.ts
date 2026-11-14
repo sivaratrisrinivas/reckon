@@ -46,7 +46,7 @@ type Life = {
 };
 type Summary = {published: string; valid_outcomes: string; correct_outcomes: string};
 type ForecastResponse = {status: string; prediction?: OnChainPrediction; model_id?: string; evidence_url?: string; reason?: string};
-type Snapshot = {life: Life; contractTotal: bigint; contractAvailable: bigint; challenger: bigint | null; lateTaker: bigint; height: number};
+type Snapshot = {life: Life; contractTotal: bigint; contractAvailable: bigint; challenger: bigint | null; lateTaker: bigint; height: number; stable: boolean};
 
 // ---------------------------------------------------------------------------
 // Narration and assertions
@@ -320,10 +320,15 @@ async function run(): Promise<void> {
       if (first.inFlight === 0n && second.inFlight === 0n && first.signature === second.signature) return;
     }
   }
-  async function snapshot(): Promise<Snapshot> {
-    await settleBalances();
+  // quick=true only waits three blocks, for use inside the 30-second challenge window; the result says
+  // whether a keeper payment attempt was in flight, in which case exact balance deltas are not claimed.
+  async function snapshot(quick = false): Promise<Snapshot> {
+    if (quick) await waitBlocks(3); else await settleBalances();
+    const before = await paymentActivity();
     const [life, state, challengerTotal, lateTakerTotal, latest] = await Promise.all([lifeNow(), direct.accountState(agentId), totalOf(challenger.accountId), totalOf(lateTaker.accountId), direct.latest()]);
-    return {life, contractTotal: state.total, contractAvailable: state.available, challenger: challengerTotal, lateTaker: lateTakerTotal ?? 0n, height: latest.height};
+    const after = await paymentActivity();
+    const stable = before.inFlight === 0n && after.inFlight === 0n && before.signature === after.signature;
+    return {life, contractTotal: state.total, contractAvailable: state.available, challenger: challengerTotal, lateTaker: lateTakerTotal ?? 0n, height: latest.height, stable};
   }
   const obligationsOf = (life: Life) => BigInt(life.spendable_bankroll) + BigInt(life.committed_bankroll) + BigInt(life.challenger_custody) + BigInt(life.retired_bankroll) + BigInt(life.pending_payment_liabilities);
   let unsolicitedFunds = 0n;
@@ -457,8 +462,15 @@ async function run(): Promise<void> {
     const beforePublication = await lifeNow();
     const forecast = await api<ForecastResponse>('POST', '/api/forecast');
     expect(forecast.body.status === 'published' && forecast.body.prediction !== undefined, `the real service published prediction #${options.number} through its scripted model and simulated market`, `HTTP ${forecast.status} ${forecast.body.status}${forecast.body.reason ? `: ${forecast.body.reason}` : ''}`);
-    const prediction = forecast.body.prediction!;
-    expect(forecast.body.model_id === 'fixture:reckon-test-forecast-v1', 'the model is the scripted fixture, not live inference', forecast.body.model_id);
+    if (forecast.body.status !== 'published' || !forecast.body.prediction) {
+      throw new DemoFailure(`The service did not publish prediction #${options.number}: HTTP ${forecast.status} ${forecast.body.status} ${forecast.body.reason ?? ''}`);
+    }
+    const prediction = forecast.body.prediction;
+    // The challenge window is only thirty seconds of chain time, so take the position before the other checks.
+    const beforeTake = await snapshot(true);
+    const take = await proxied.send(options.taker, agentId, [functionCall('challenge_prediction', {prediction_id: prediction.id}, GAS_30_TGAS, BigInt(prediction.challenger_stake))]);
+    const afterTake = await snapshot(true);
+    expect(forecast.body.model_id ==='fixture:reckon-test-forecast-v1', 'the model is the scripted fixture, not live inference', forecast.body.model_id);
     expect(prediction.decision === 'no' && prediction.confidence_ppm === 850_000, 'the scripted forecast is NO at 85%', `${prediction.decision} ${prediction.confidence_ppm / 10_000}%`);
     const cap = BigInt(beforePublication.spendable_bankroll) * 2n / 100n;
     expect(BigInt(prediction.agent_stake) <= cap, 'the agent stake respects the 2% spendable bankroll cap', `${near(BigInt(prediction.agent_stake))} <= ${near(cap)}`);
@@ -469,12 +481,13 @@ async function run(): Promise<void> {
     const published = (await evidenceTransactions(heightBefore, transaction => transaction.methods.includes('publish_prediction') && transaction.receiverId === agentId))[0];
     expect(published?.signerId === agentId && published.publicKey === predictionPublicKey, 'the publication transaction was signed by the restricted prediction key', `tx ${published?.hash}`);
 
-    const beforeTake = await snapshot();
-    const take = await proxied.send(options.taker, agentId, [functionCall('challenge_prediction', {prediction_id: prediction.id}, GAS_30_TGAS, BigInt(prediction.challenger_stake))]);
     expect(take.succeeded, `${options.taker.accountId} took the opposing side through the service RPC proxy, as the browser wallet does`, `tx ${take.hash}`);
-    const afterTake = await snapshot();
     const stake = BigInt(prediction.challenger_stake);
-    expect(afterTake.contractTotal - beforeTake.contractTotal === stake, 'the contract account received exactly the quoted challenger stake', near(stake));
+    if (beforeTake.stable && afterTake.stable) {
+      expect(afterTake.contractTotal - beforeTake.contractTotal === stake, 'the contract account received exactly the quoted challenger stake', near(stake));
+    } else {
+      log('       (exact deposit delta not claimed: a keeper payment retry was mid-transfer while balances were read; custody below still proves the stake)');
+    }
     expect(BigInt(afterTake.life.challenger_custody) === stake && BigInt(afterTake.life.committed_bankroll) === BigInt(prediction.agent_stake), 'custody and commitment match the stakes', describeLife(afterTake.life));
     expect((await record(prediction.id)).challenger_account_id === options.taker.accountId, 'the contract recorded the real challenger account', options.taker.accountId);
     await assertConserved(`prediction #${options.number} after the challenge`);
