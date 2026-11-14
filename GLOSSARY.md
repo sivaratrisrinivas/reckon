@@ -39,3 +39,17 @@ _Avoid_: Burned tokens, sink payment
 **Death**:
 The permanent end of the agent's ability to make new predictions or accept new challenges after its spendable funds run out. Existing challenges still settle, and late winnings or unsolicited funds cannot revive it.
 _Avoid_: Pause, temporary shutdown
+
+### Payments
+
+**Payment liability**:
+An amount Reckon owes to a prediction's fixed beneficiary until the transfer is confirmed.
+_Avoid_: Pending payout
+
+**Payment attempt**:
+One uniquely identified transfer attempt for a payment liability; every attempt keeps the same beneficiary and amount.
+_Avoid_: Retry
+
+**Receipt reconciliation**:
+Resolving a payment liability from finalized evidence that a particular transfer succeeded or failed.
+_Avoid_: Callback retry

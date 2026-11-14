@@ -170,10 +170,10 @@ function renderPaymentRecovery(prediction) {
     return;
   }
   panel.hidden = false;
-  button.disabled = paymentRetryInFlight || payment.transfer_in_flight;
-  button.textContent = payment.transfer_in_flight ? 'Awaiting transfer receipt…' : 'Retry payment';
+  button.disabled = paymentRetryInFlight;
+  button.textContent = payment.transfer_in_flight ? 'Verify payment receipt' : 'Retry payment';
   $('payment-recovery-state').textContent = payment.transfer_in_flight
-    ? `A transfer attempt is pending for ${near(payment.amount)} to ${payment.beneficiary_account_id}. Its callback may be delayed after the transfer succeeds, so recovery waits for a confirmed failed receipt to prevent duplicate payment.`
+    ? `A transfer attempt is pending for ${near(payment.amount)} to ${payment.beneficiary_account_id}. The transfer may already have succeeded. Verify its receipt to recover the recorded payment safely.`
     : `The final ${prediction.outcome === 'void' ? 'refund' : 'payout'} of ${near(payment.amount)} remains owed to ${payment.beneficiary_account_id}. Recovery keeps this beneficiary and amount fixed; it does not create a new wager.`;
 }
 
@@ -264,8 +264,8 @@ function renderPublicRecord() {
       const recover = document.createElement('button');
       recover.type = 'button';
       recover.className = 'secondary record-recovery';
-      recover.textContent = prediction.payment.transfer_in_flight ? 'Awaiting transfer receipt…' : 'Retry payment';
-      recover.disabled = paymentRetryInFlight || prediction.payment.transfer_in_flight;
+      recover.textContent = prediction.payment.transfer_in_flight ? 'Verify payment receipt' : 'Retry payment';
+      recover.disabled = paymentRetryInFlight;
       recover.addEventListener('click', () => void retryPaymentForPrediction(prediction.id));
       row.append(recover);
     }

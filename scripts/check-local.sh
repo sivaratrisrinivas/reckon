@@ -17,21 +17,27 @@ case "$version" in
 esac
 contract_wasm=contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm
 oracle_fixture_wasm=contract/target/wasm32-unknown-unknown/release/reckon_oracle_fixture.wasm
-if [ ! -f "$contract_wasm" ]; then
-  echo 'Contract Wasm missing. Run npm run build:contract; see README.md.' >&2
-  exit 1
+contract_artifacts="$contract_wasm"
+if [ "${RECKON_TEST:-}" = 1 ]; then
+  contract_artifacts="$contract_artifacts contract/target/wasm32-unknown-unknown/release/reckon_contract_callback_fault.wasm"
 fi
-for build_input in contract/Cargo.toml contract/Cargo.lock rust-toolchain.toml; do
-  if [ "$build_input" -nt "$contract_wasm" ]; then
-    echo "Contract Wasm is older than $build_input. Run npm run build:contract; see README.md." >&2
+for contract_wasm in $contract_artifacts; do
+  if [ ! -f "$contract_wasm" ]; then
+    echo "Contract Wasm missing: $contract_wasm. Run npm run build:contract; see README.md." >&2
+    exit 1
+  fi
+  for build_input in contract/Cargo.toml contract/Cargo.lock rust-toolchain.toml; do
+    if [ "$build_input" -nt "$contract_wasm" ]; then
+      echo "Contract Wasm is older than $build_input. Run npm run build:contract; see README.md." >&2
+      exit 1
+    fi
+  done
+  stale_source=$(find contract/src -type f -name '*.rs' -newer "$contract_wasm" -print -quit)
+  if [ -n "$stale_source" ]; then
+    echo "Contract Wasm is older than $stale_source. Run npm run build:contract; see README.md." >&2
     exit 1
   fi
 done
-stale_source=$(find contract/src -type f -name '*.rs' -newer "$contract_wasm" -print -quit)
-if [ -n "$stale_source" ]; then
-  echo "Contract Wasm is older than $stale_source. Run npm run build:contract; see README.md." >&2
-  exit 1
-fi
 if [ ! -f "$oracle_fixture_wasm" ]; then
   echo 'Oracle fixture Wasm missing. Run npm run build:contract; see README.md.' >&2
   exit 1

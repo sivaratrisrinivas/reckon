@@ -7,22 +7,24 @@
     "node": "26.13.0"
   },
   "scripts": {
-    "start": "tsx service.ts",
+    "start": "sh scripts/with-archive-sandbox.sh tsx service.ts",
     "build:browser": "sh scripts/build-browser.sh",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx tests/diagnostic-validation.ts && node --import tsx tests/diagnostic-callback.ts && node --import tsx tests/diagnostic-code.ts && npm run test:contract && playwright test",
-    "test:contract": "tsx tests/contract.ts && tsx tests/settlement-contract.ts",
+    "test:contract": "tsx tests/contract.ts && tsx tests/settlement-contract.ts && sh scripts/with-archive-sandbox.sh tsx tests/payment-reconciliation.ts",
     "test:settlement": "tsx tests/settlement-contract.ts",
     "prestart": "sh scripts/check-local.sh && npm run build:browser",
-    "pretest": "sh scripts/check-local.sh && node scripts/check-browser-runtime.mjs",
-    "pretest:contract": "sh scripts/check-local.sh",
+    "pretest": "RECKON_TEST=1 sh scripts/check-local.sh && node scripts/check-browser-runtime.mjs",
+    "pretest:contract": "RECKON_TEST=1 sh scripts/check-local.sh",
     "pretest:settlement": "sh scripts/check-local.sh",
-    "build:contract": "cargo build --manifest-path contract/Cargo.toml --release --target wasm32-unknown-unknown --locked && CARGO_TARGET_DIR=contract/target cargo build --manifest-path oracle-fixture-contract/Cargo.toml --release --target wasm32-unknown-unknown --locked",
+    "build:contract": "cargo build --manifest-path contract/Cargo.toml --release --target wasm32-unknown-unknown --locked --features payment-callback-fault && cp contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm contract/target/wasm32-unknown-unknown/release/reckon_contract_callback_fault.wasm && cargo build --manifest-path contract/Cargo.toml --release --target wasm32-unknown-unknown --locked && CARGO_TARGET_DIR=contract/target cargo build --manifest-path oracle-fixture-contract/Cargo.toml --release --target wasm32-unknown-unknown --locked",
     "lint": "eslint . && cargo fmt --manifest-path contract/Cargo.toml --check && cargo fmt --manifest-path oracle-fixture-contract/Cargo.toml --check",
     "audit:high": "npm audit --audit-level=high",
     "build:diagnostic": "cargo build --manifest-path diagnostic-contract/Cargo.toml --release --target wasm32-unknown-unknown --locked",
     "test:diagnostic-contract": "npm run build:diagnostic && tsx tests/diagnostic-contract.ts",
-    "archive:evidence": "tsx scripts/archive-evidence.ts"
+    "archive:evidence": "tsx scripts/archive-evidence.ts",
+    "test:payment-proof": "sh scripts/with-archive-sandbox.sh tsx tests/payment-reconciliation.ts",
+    "pretest:payment-proof": "RECKON_TEST=1 sh scripts/check-local.sh"
   },
   "dependencies": {
     "@vercel/blob": "2.9.0",

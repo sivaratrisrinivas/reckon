@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+# near-workspaces 5 invokes the binary as --home <directory> run ... .
+if [ "${3:-}" = run ]; then
+  home_option=$1
+  sandbox_directory=$2
+  shift 3
+  exec "${RECKON_SANDBOX_EXECUTABLE:?}" "$home_option" "$sandbox_directory" run --archive "$@"
+fi
+exec "${RECKON_SANDBOX_EXECUTABLE:?}" "$@"

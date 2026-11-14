@@ -6,6 +6,7 @@ import {functionCallAccessKey} from 'near-api-js/lib/transaction.js';
 import {ForecastService, PAYMENT_TRANSFER_TIMEOUT_SECONDS, type FixtureScenario, type OnChainPrediction, type PredictionChain, type PredictionQuote, type ProviderMode} from './forecast.js';
 import {SETTLEMENT_WINDOW_SECONDS} from './forecast.js';
 import {publishBlobEvidence} from './evidence-store.js';
+import {ReceiptProofRelay, sandboxReceiptGenesis} from './receipt-proofs.js';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
@@ -21,6 +22,8 @@ let testWalletNetworkId: string | null = null;
 const worker = await Worker.init();
 const root = worker.rootAccount;
 const sandboxRpcUrl = (worker.provider as unknown as {connection: {url: string}}).connection.url;
+const receiptGenesis = await sandboxReceiptGenesis(sandboxRpcUrl);
+const paymentKeeper = await root.createSubAccount('payment-keeper', {initialBalance: 5n * 10n ** 24n});
 const challengerWallet = await root.createSubAccount('challenger', {initialBalance: 25n * 10n ** 24n});
 const challengerKey = await challengerWallet.getKey();
 if (!challengerKey) throw new Error('The sandbox challenger wallet key is unavailable');
@@ -32,10 +35,14 @@ const oracleFixture = providerMode === 'fixture'
     args: {owner_id: root.accountId},
   })
   : null;
-const contract = await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm', {
+const contractWasm = process.env.RECKON_TEST === '1'
+  ? 'contract/target/wasm32-unknown-unknown/release/reckon_contract_callback_fault.wasm'
+  : 'contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm';
+const contract = await root.devDeploy(contractWasm, {
   initialBalance: 120n * 10n ** 24n,
   method: 'new',
   args: {
+    receipt_genesis: receiptGenesis,
     initial_bankroll: (100n * 10n ** 24n).toString(),
     operational_reserve: (20n * 10n ** 24n).toString(),
     idle_life_ns: process.env.RECKON_LOCAL_IDLE_LIFE_NS ?? '900000000000',
@@ -47,6 +54,12 @@ await contract.batch(contract).addKey(
   predictionKey.getPublicKey(),
   functionCallAccessKey(contract.accountId, ['publish_prediction'], 5n * 10n ** 24n),
 ).transact();
+
+const receiptRelay = await ReceiptProofRelay.open(sandboxRpcUrl, contract, `.local/runtime/payment-receipts/${receiptGenesis.genesis_hash}/${contract.accountId}.json`, paymentKeeper);
+
+function submitPaymentOperation(method: string, args: Record<string, string>) {
+  return receiptRelay.submit(method, args);
+}
 
 const chain: PredictionChain = {
   activePrediction: () => contract.view<OnChainPrediction | null>('active_prediction', {}),
@@ -84,6 +97,7 @@ const files: Record<string, [string, string]> = {
 let settlementKeeperRunning = false;
 let paymentRecoveryInFlight = false;
 const settlementRequestsInFlight = new Set<string>();
+let paymentScanCursor = 1n;
 const paymentRetrySchedule = new Map<string, {nextAttemptAtMs: number; delayMs: number}>();
 const PAYMENT_RETRY_INITIAL_DELAY_MS = 5_000;
 const PAYMENT_RETRY_MAX_DELAY_MS = 120_000;
@@ -93,7 +107,7 @@ function submitSettlementRequest(predictionId: string): void {
   if (settlementRequestsInFlight.has(predictionId)) return;
   settlementRequestsInFlight.add(predictionId);
   const timeout = setTimeout(() => settlementRequestsInFlight.delete(predictionId), SETTLEMENT_REQUEST_SUBMISSION_TIMEOUT_MS);
-  void contract.callRaw(contract, 'request_settlement', {prediction_id: predictionId}, {gas: 250n * 10n ** 12n})
+  void submitPaymentOperation('request_settlement', {prediction_id: predictionId})
     .catch(() => undefined)
     .finally(() => {
       clearTimeout(timeout);
@@ -111,14 +125,14 @@ async function runSettlementKeeper(): Promise<void> {
       const deadline = BigInt(prediction.deadline_ns);
       const cutoff = deadline + BigInt(SETTLEMENT_WINDOW_SECONDS) * 1_000_000_000n;
       if (now >= cutoff) {
-        await contract.callRaw(contract, 'void_unsettled_prediction', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
+        await submitPaymentOperation('void_unsettled_prediction', {prediction_id: prediction.id});
       } else if (now >= deadline && prediction.settlement_status === 'waiting') {
         // This block-time read only schedules a transaction; the contract checks its execution time.
         // If the request arrives too late, the next keeper tick can void after the cutoff.
         submitSettlementRequest(prediction.id);
       }
     }
-    await retryPendingPayments();
+    void retryPendingPayments().catch(() => undefined);
   } catch {
     // Settlement state is authoritative on chain; the next keeper tick rechecks it.
   } finally {
@@ -130,33 +144,50 @@ async function retryPendingPayments(): Promise<void> {
   if (paymentRecoveryInFlight) return;
   paymentRecoveryInFlight = true;
   try {
+    await receiptRelay.recoverSubmitted();
     const summary = await contract.view<{published: string}>('prediction_summary', {});
     const published = BigInt(summary.published);
     if (published === 0n) return;
-    for (let start = 1n; start <= published; start += 50n) {
-      const predictions = await contract.view<OnChainPrediction[]>('list_predictions', {
-        start_id: start.toString(),
-        limit: '50',
-      });
-      for (const prediction of predictions) {
-        const payment = prediction.payment;
-        if (payment?.status !== 'pending') continue;
-        // A native transfer may have succeeded while its callback is delayed.
-        // Never issue a second transfer from a timeout alone; only a failed
-        // callback clears transfer_in_flight and makes this liability retryable.
-        if (payment.transfer_in_flight) continue;
-        const now = Date.now();
-        const schedule = paymentRetrySchedule.get(prediction.id);
-        if (schedule && now < schedule.nextAttemptAtMs) continue;
-        const delayMs = schedule?.delayMs ?? PAYMENT_RETRY_INITIAL_DELAY_MS;
-        paymentRetrySchedule.set(prediction.id, {
-          nextAttemptAtMs: now + delayMs,
-          delayMs: Math.min(delayMs * 2, PAYMENT_RETRY_MAX_DELAY_MS),
-        });
-        const receipt = await contract.callRaw(contract, 'retry_payment', {prediction_id: prediction.id}, {gas: 250n * 10n ** 12n});
-        const updated = await contract.view<OnChainPrediction | null>('get_prediction', {id: prediction.id});
-        if (receipt.succeeded && updated?.payment?.status === 'paid') paymentRetrySchedule.delete(prediction.id);
+    if (paymentScanCursor > published) paymentScanCursor = 1n;
+    const predictions = await contract.view<OnChainPrediction[]>('list_predictions', {
+      start_id: paymentScanCursor.toString(),
+      limit: '50',
+    });
+    for (const prediction of predictions) {
+      paymentScanCursor = BigInt(prediction.id) + 1n;
+      const payment = prediction.payment;
+      if (payment?.status !== 'pending') {
+        paymentRetrySchedule.delete(prediction.id);
+        await receiptRelay.forget(prediction.id);
+        continue;
       }
+      // Timeout schedules verification, never another unconfirmed transfer.
+      if (payment.transfer_in_flight) {
+        const startedAt = BigInt(payment.attempt_started_at_ns ?? '0');
+        if (await readSandboxBlockTimestamp() < startedAt + BigInt(PAYMENT_TRANSFER_TIMEOUT_SECONDS) * 1_000_000_000n) continue;
+      }
+      const now = Date.now();
+      const schedule = paymentRetrySchedule.get(prediction.id);
+      if (schedule && now < schedule.nextAttemptAtMs) continue;
+      const delayMs = schedule?.delayMs ?? PAYMENT_RETRY_INITIAL_DELAY_MS;
+      paymentRetrySchedule.set(prediction.id, {
+        nextAttemptAtMs: now + delayMs,
+        delayMs: Math.min(delayMs * 2, PAYMENT_RETRY_MAX_DELAY_MS),
+      });
+      let receipt;
+      try {
+        receipt = payment.transfer_in_flight
+          ? await receiptRelay.reconcile(prediction.id, payment)
+          : await submitPaymentOperation('retry_payment', {prediction_id: prediction.id});
+      } catch {
+        break; // The next tick resumes at the next record, preserving its backoff.
+      }
+      const updated = await contract.view<OnChainPrediction | null>('get_prediction', {id: prediction.id});
+      if (receipt.succeeded && updated?.payment?.status === 'paid') {
+        paymentRetrySchedule.delete(prediction.id);
+        await receiptRelay.forget(prediction.id);
+      }
+      break; // At most one recovery transaction per keeper tick.
     }
   } finally {
     paymentRecoveryInFlight = false;
@@ -314,13 +345,19 @@ const server = createServer(async (req, res) => {
       paymentRetrySchedule.delete(predictionId);
       paymentRecoveryInFlight = true;
       try {
-        const receipt = await contract.callRaw(contract, 'retry_payment', {prediction_id: predictionId}, {gas: 250n * 10n ** 12n});
+        const prediction = await contract.view<OnChainPrediction>('get_prediction', {id: predictionId});
+        const receipt = prediction?.payment?.transfer_in_flight
+          ? await receiptRelay.reconcile(predictionId, prediction.payment)
+          : await submitPaymentOperation('retry_payment', {prediction_id: predictionId});
         const updated = await contract.view<OnChainPrediction | null>('get_prediction', {id: predictionId});
         if (!receipt.succeeded) {
           json(res, 409, {error: 'Payment retry was not accepted', prediction: updated});
           return;
         }
+        if (updated?.payment?.status === 'paid') await receiptRelay.forget(predictionId);
         json(res, 200, {prediction: updated}, {'Cache-Control': 'no-store'});
+      } catch {
+        json(res, 409, {error: 'A finalized payment receipt is not available yet. The original liability remains recorded.'});
       } finally {
         paymentRecoveryInFlight = false;
       }
@@ -373,7 +410,9 @@ const server = createServer(async (req, res) => {
     }
     if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/payment-scenario') {
       const body = await readJsonBody(req);
-      if (body.scenario === 'fail') {
+      if (body.scenario === 'callback-fail' || body.scenario === 'callback-restore') {
+        await contract.call(contract, 'set_payment_callback_fault', {enabled: body.scenario === 'callback-fail'});
+      } else if (body.scenario === 'fail') {
         const receipt = await challengerWallet.delete(root.accountId);
         if (!receipt.succeeded) { json(res, 503, {error: 'Could not remove the fixture payout beneficiary'}); return; }
       } else if (body.scenario === 'restore') {

@@ -1,3 +1,4 @@
+mod receipt_proofs;
 use near_sdk::serde_json::{self, Value};
 use near_sdk::{
     env,
@@ -6,6 +7,7 @@ use near_sdk::{
     store::LookupMap,
     AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault, Promise, PromiseOrValue,
 };
+use receipt_proofs::{Genesis, Head, ReceiptVerifier};
 use uint::construct_uint;
 
 construct_uint! { struct U256(4); }
@@ -31,11 +33,11 @@ const MAX_ORACLE_RESPONSE_AGE_NS: u64 = 300 * 1_000_000_000;
 const ORACLE_REQUEST_DEPOSIT: u128 = 20_000_000_000_000_000_000_000;
 const ORACLE_REQUEST_GAS: Gas = Gas::from_tgas(200);
 const PAYMENT_CALLBACK_GAS: Gas = Gas::from_tgas(30);
-// A transfer callback is expected to complete promptly. Once this bounded
-// interval expires, a keeper or browser can abandon the attempt and create a
-// fresh attempt with a new identity. The callback identity check still makes
-// the abandoned attempt unable to change the liability.
+// After this interval a keeper starts receipt reconciliation. The contract itself
+// schedules nothing, and a timeout never authorizes a second transfer.
 const PAYMENT_TRANSFER_TIMEOUT_NS: u64 = 5 * 60 * 1_000_000_000;
+const ORACLE_PROMISE_EVENT: &str = "RECKON_ORACLE_PROMISE";
+const PAYMENT_ATTEMPT_PREFIX: &str = "RECKON_PAYMENT_ATTEMPT:";
 const ORACLE_ASSET_ID: &str = "wrap.near";
 const MAX_PREDICTION_PAGE_SIZE: u64 = 50;
 
@@ -107,6 +109,10 @@ pub struct Reckon {
     valid_outcomes: u64,
     correct_outcomes: u64,
     predictions: LookupMap<u64, Prediction>,
+    receipt_verifier: Option<ReceiptVerifier>,
+    payment_instance_id: String,
+    #[cfg(feature = "payment-callback-fault")]
+    payment_callback_fault: bool,
 }
 
 #[near(serializers = [json])]
@@ -174,6 +180,17 @@ pub struct PaymentLiability {
 }
 
 #[near(serializers = [json])]
+#[serde(deny_unknown_fields)]
+struct PaymentAttemptEvent {
+    instance_id: String,
+    prediction_id: U64,
+    payment_id: String,
+    attempt_id: U64,
+    beneficiary_account_id: AccountId,
+    amount: U128,
+}
+
+#[near(serializers = [json])]
 pub struct PredictionSummary {
     published: U64,
     valid_outcomes: U64,
@@ -210,6 +227,7 @@ impl Reckon {
             U64(LIVE_IDLE_LIFE_NS),
             prediction_public_key,
             "price-oracle.testnet".parse().unwrap(),
+            None,
         )
     }
 
@@ -220,6 +238,7 @@ impl Reckon {
         idle_life_ns: U64,
         prediction_public_key: String,
         oracle_account_id: AccountId,
+        receipt_genesis: Option<Genesis>,
     ) -> Self {
         require!(
             initial_bankroll.0 > 0 && idle_life_ns.0 > 0,
@@ -259,6 +278,10 @@ impl Reckon {
             valid_outcomes: 0,
             correct_outcomes: 0,
             predictions: LookupMap::new(StorageKey::Predictions),
+            receipt_verifier: receipt_genesis.map(ReceiptVerifier::new),
+            payment_instance_id: near_sdk::bs58::encode(env::random_seed_array()).into_string(),
+            #[cfg(feature = "payment-callback-fault")]
+            payment_callback_fault: false,
         }
     }
 
@@ -502,6 +525,7 @@ impl Reckon {
             "msg": request_id,
             "resource_limits": null
         });
+        env::log_str(ORACLE_PROMISE_EVENT);
         Promise::new(self.oracle_account_id.clone()).function_call(
             "oracle_call".to_string(),
             serde_json::to_vec(&args).expect("Serialize oracle request"),
@@ -718,31 +742,141 @@ impl Reckon {
         callback_payment_id: String,
         callback_attempt_id: U64,
     ) -> bool {
-        let mut prediction = self
+        let prediction = self
             .predictions
             .get(&prediction_id.0)
             .cloned()
             .expect("Prediction does not exist");
-        let mut payment = prediction
+        let payment = prediction
             .payment
+            .clone()
             .expect("Prediction has no payment liability");
         require!(
             payment_callback_matches(&payment, &callback_payment_id, callback_attempt_id.0),
             "Payment receipt does not match a pending transfer"
         );
+        #[cfg(feature = "payment-callback-fault")]
+        require!(
+            !self.payment_callback_fault,
+            "Test-only payment callback fault"
+        );
+        require!(env::promise_results_count() == 1, "Missing transfer result");
         let succeeded = env::promise_result_checked(0, 1_024).is_ok();
-        payment.transfer_in_flight = false;
-        payment.attempt_started_at_ns = None;
-        if succeeded {
-            payment.status = PaymentStatus::Paid.as_str().to_string();
-            self.pending_payment_liabilities = self
-                .pending_payment_liabilities
-                .checked_sub(payment.amount.0)
-                .expect("Pending payment liability underflow");
+        self.finish_payment(prediction_id.0, prediction, payment, succeeded)
+    }
+
+    pub fn receipt_verifier_head(&self) -> Option<Head> {
+        self.receipt_verifier.as_ref().map(ReceiptVerifier::head)
+    }
+
+    pub fn update_receipt_verifier(&mut self, header: Value) {
+        self.receipt_verifier
+            .as_mut()
+            .expect("Receipt proofs are not configured for this network")
+            .update(&header);
+    }
+
+    /// Anyone may relay proofs. Neither their identity nor their RPC result is trusted.
+    pub fn reconcile_payment(
+        &mut self,
+        prediction_id: U64,
+        source_proof: Value,
+        transfer_proof: Value,
+    ) -> bool {
+        let prediction = self
+            .predictions
+            .get(&prediction_id.0)
+            .cloned()
+            .expect("Prediction does not exist");
+        let payment = prediction
+            .payment
+            .clone()
+            .expect("Prediction has no payment liability");
+        require!(
+            payment.status == PaymentStatus::Pending.as_str() && payment.transfer_in_flight,
+            "Payment has no unresolved attempt"
+        );
+        let verifier = self
+            .receipt_verifier
+            .as_ref()
+            .expect("Receipt proofs are not configured for this network");
+        let source = verifier.verify(&source_proof);
+        let transfer = verifier.verify(&transfer_proof);
+        require!(
+            source["outcome"]["executor_id"] == env::current_account_id().as_str(),
+            "Wrong payment source"
+        );
+        let status = &source["outcome"]["status"];
+        require!(
+            status.get("SuccessReceiptId").is_some() || status.get("SuccessValue").is_some(),
+            "Payment source did not execute successfully"
+        );
+        let event = self.payment_attempt_event(prediction_id.0, &payment);
+        // Each method logs its promise effects in creation order. Counting
+        // preceding effects also binds payments batched in one action receipt.
+        let mut next_child = 0usize;
+        let mut transfer_index = None;
+        for log in source["outcome"]["logs"]
+            .as_array()
+            .expect("Missing source logs")
+        {
+            let log = log.as_str().expect("Invalid source log");
+            if log == ORACLE_PROMISE_EVENT {
+                next_child += 1;
+            } else if let Some(payload) = log.strip_prefix(PAYMENT_ATTEMPT_PREFIX) {
+                let fields: PaymentAttemptEvent =
+                    serde_json::from_str(payload).expect("Malformed payment effect");
+                require!(
+                    fields.instance_id == self.payment_instance_id
+                        && fields.prediction_id.0 > 0
+                        && fields.attempt_id.0 > 0
+                        && fields.amount.0 > 0
+                        && fields.payment_id == payment_id(fields.prediction_id.0),
+                    "Unknown payment effect format"
+                );
+                if log == event {
+                    require!(transfer_index.is_none(), "Repeated payment attempt event");
+                    transfer_index = Some(next_child);
+                }
+                next_child += 2; // Native transfer, then its callback.
+            } else {
+                env::panic_str("Unaccounted source receipt effect");
+            }
         }
-        prediction.payment = Some(payment);
-        self.predictions.insert(prediction_id.0, prediction);
-        succeeded
+        let transfer_index = transfer_index.expect("Proof does not identify this payment attempt");
+        // Protocol-88 appends the source action receipt gas refund after its promises.
+        let children = source["outcome"]["receipt_ids"]
+            .as_array()
+            .expect("Missing child receipts");
+        require!(
+            children.len() == next_child + 1 && children[transfer_index + 1].is_string(),
+            "Incomplete payment receipt sequence"
+        );
+        require!(
+            children[transfer_index].is_string()
+                && children[transfer_index] == transfer["id"]
+                && children[transfer_index] != children[transfer_index + 1],
+            "Proof is not the scheduled transfer"
+        );
+        require!(
+            transfer["outcome"]["executor_id"] == payment.beneficiary_account_id,
+            "Wrong payment beneficiary"
+        );
+        let status = &transfer["outcome"]["status"];
+        let succeeded = status
+            .get("SuccessValue")
+            .is_some_and(|value| value.as_str() == Some(""));
+        require!(
+            succeeded || status.get("Failure").is_some(),
+            "Transfer result is not terminal"
+        );
+        self.finish_payment(prediction_id.0, prediction, payment, succeeded)
+    }
+
+    #[cfg(feature = "payment-callback-fault")]
+    #[private]
+    pub fn set_payment_callback_fault(&mut self, enabled: bool) {
+        self.payment_callback_fault = enabled;
     }
 
     pub fn active_prediction(&self) -> Option<Prediction> {
@@ -777,6 +911,45 @@ impl Reckon {
 }
 
 impl Reckon {
+    fn payment_attempt_event(&self, prediction_id: u64, payment: &PaymentLiability) -> String {
+        let event = PaymentAttemptEvent {
+            instance_id: self.payment_instance_id.clone(),
+            prediction_id: U64(prediction_id),
+            payment_id: payment.payment_id.clone(),
+            attempt_id: payment.attempt_id,
+            beneficiary_account_id: payment
+                .beneficiary_account_id
+                .parse()
+                .expect("Invalid beneficiary"),
+            amount: payment.amount,
+        };
+        format!(
+            "{PAYMENT_ATTEMPT_PREFIX}{}",
+            serde_json::to_string(&event).expect("Serialize payment effect")
+        )
+    }
+
+    fn finish_payment(
+        &mut self,
+        prediction_id: u64,
+        mut prediction: Prediction,
+        mut payment: PaymentLiability,
+        succeeded: bool,
+    ) -> bool {
+        payment.transfer_in_flight = false;
+        payment.attempt_started_at_ns = None;
+        if succeeded {
+            payment.status = PaymentStatus::Paid.as_str().to_string();
+            self.pending_payment_liabilities = self
+                .pending_payment_liabilities
+                .checked_sub(payment.amount.0)
+                .expect("Pending payment liability underflow");
+        }
+        prediction.payment = Some(payment);
+        self.predictions.insert(prediction_id, prediction);
+        succeeded
+    }
+
     fn create_payment_liability(
         &mut self,
         prediction: &mut Prediction,
@@ -826,6 +999,7 @@ impl Reckon {
         let amount = payment.amount.0;
         let payment_id = payment.payment_id.clone();
         payment.attempt_started_at_ns = Some(U64(env::block_timestamp()));
+        env::log_str(&self.payment_attempt_event(prediction_id, &payment));
         prediction.payment = Some(payment);
         self.predictions.insert(prediction_id, prediction);
 
@@ -1048,7 +1222,7 @@ fn payment_retry_error(payment: &PaymentLiability, now: u64) -> Result<(), &'sta
         .0;
     if now >= payment_timeout_ns(started_at) {
         return Err(
-            "Transfer outcome is uncertain after the callback timeout; wait for its receipt before retrying",
+            "Transfer outcome is uncertain after the callback timeout; reconcile its finalized receipt with reconcile_payment before retrying",
         );
     }
     Err("A payment attempt is still pending; retrying could duplicate a successful transfer")

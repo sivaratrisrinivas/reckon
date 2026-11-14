@@ -258,6 +258,45 @@ test('failed payout stays visible and can be recovered without changing the fina
   await expect(page.locator('#payment-recovery')).toBeHidden();
 });
 
+test('a missing payment callback can be recovered from the browser without a second transfer', async ({page, request}) => {
+  const {prediction, balanceAfterChallenge} = await publishAndChallenge(page, request);
+  expect((await request.post('/test/payment-scenario', {data: {scenario: 'callback-fail'}})).status()).toBe(204);
+  expect((await request.post('/test/settlement-scenario', {data: {scenario: 'above'}})).status()).toBe(204);
+  expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('Payment pending', {timeout: 30_000});
+  const pending = (await (await request.get(`/api/predictions?start_id=${prediction.id}&limit=1`)).json())[0];
+  expect(pending.payment.transfer_in_flight).toBe(true);
+  const balanceAfterTransfer = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  expect(balanceAfterTransfer - balanceAfterChallenge).toBe(BigInt(pending.payment.amount));
+  await page.getByRole('button', {name: 'Verify payment receipt', exact: true}).first().click();
+  await expect(page.locator('#settlement-state')).toContainText('Payment confirmed on chain', {timeout: 30_000});
+  expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBe(balanceAfterTransfer);
+  expect((await request.post('/test/payment-scenario', {data: {scenario: 'callback-restore'}})).status()).toBe(204);
+});
+
+test('the keeper reconciles a missing payment callback automatically after its timeout', async ({page, request}) => {
+  const {prediction} = await publishAndChallenge(page, request);
+  expect((await request.post('/test/payment-scenario', {data: {scenario: 'callback-fail'}})).status()).toBe(204);
+  expect((await request.post('/test/settlement-scenario', {data: {scenario: 'above'}})).status()).toBe(204);
+  expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('Payment pending', {timeout: 30_000});
+  const transferredBalance = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  // The keeper may relay a receipt proof only after the 300-second callback timeout, measured
+  // in chain time from the attempt. Before it, an unconfirmed transfer must stay pending.
+  expect((await request.post('/test/advance', {data: {seconds: 200}})).status()).toBe(204);
+  await page.waitForTimeout(7_000); // Several one-second keeper ticks, beyond its first retry delay.
+  const early = (await (await request.get(`/api/predictions?start_id=${prediction.id}&limit=1`)).json())[0];
+  expect(early.payment.status).toBe('pending');
+  expect(early.payment.transfer_in_flight).toBe(true);
+  await expect(page.locator('#settlement-state')).toContainText('Payment pending');
+  expect((await request.post('/test/advance', {data: {seconds: 130}})).status()).toBe(204);
+  await expect(page.locator('#settlement-state')).toContainText('Payment confirmed on chain', {timeout: 30_000});
+  const paid = (await (await request.get(`/api/predictions?start_id=${prediction.id}&limit=1`)).json())[0];
+  expect(paid.payment.status).toBe('paid');
+  expect(BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance)).toBe(transferredBalance);
+  expect((await request.post('/test/payment-scenario', {data: {scenario: 'callback-restore'}})).status()).toBe(204);
+});
+
 test('challenge ask checks the local wallet before inference and waits for explicit stake approval', async ({page, request}) => {
   await scenario(request, 'publish');
   await request.post('/api/wallet/fund');
