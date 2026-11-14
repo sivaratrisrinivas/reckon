@@ -170,7 +170,8 @@ async function runProfile(profile: Profile, browser: import('@playwright/test').
 
   const loadStartedAt = Date.now();
   await page.goto('/');
-  await expect(page.locator('#state-label')).toHaveText('Idle');
+  // A later profile loads the previous round's result instead of the idle scene; either is a usable first scene.
+  await expect(page.locator('#state-label')).toHaveText(/^(Idle|Resolved|Void)$/);
   await expect(page.locator('#wallet-state')).toContainText('EPHEMERAL SANDBOX KEY');
   const firstUsableSceneMs = Date.now() - loadStartedAt;
   await page.waitForTimeout(1_000);
