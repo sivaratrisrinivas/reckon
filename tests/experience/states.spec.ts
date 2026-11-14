@@ -386,8 +386,16 @@ test('a transfer attempt in flight offers receipt verification, not a second tra
   await auditState(page, 'transfer in flight', {maximumPrimaryActions: 1, sweepViewports: false});
   expect(await visiblePrimaryActions(page)).toEqual(['Verify payment receipt']);
   await tabTo(page, '#retry-payment-button');
-  await page.keyboard.press('Enter');
-  await expect(page.locator(STATE_LABEL)).toHaveText('Resolved', {timeout: 30_000});
+  // The keeper holds its recovery slot for part of every second, so a press can be told another recovery is in
+  // progress (409). The page says so and the visitor presses again; the test does the same.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await page.keyboard.press('Enter');
+    const resolved = await expect(page.locator(STATE_LABEL)).toHaveText('Resolved', {timeout: 8_000}).then(() => true, () => false);
+    if (resolved) break;
+    await expect(page.locator('#forecast-status')).toContainText('not accepted');
+    expect(await activeDescription(page), 'focus stays on the recovery button after a refused press').toContain('Verify payment receipt');
+  }
+  await expect(page.locator(STATE_LABEL)).toHaveText('Resolved');
   await expect(page.locator('#forecast-status')).toContainText('Payment confirmed on chain');
   await paymentScenario(request, 'callback-restore');
 });

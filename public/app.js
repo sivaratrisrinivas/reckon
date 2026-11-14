@@ -963,9 +963,10 @@ async function retryPaymentForPrediction(predictionId) {
       showStatus(`Prediction #${currentPrediction.id} remains pending until its transfer receipt confirms.`, 'payment-pending');
     }
     renderPublicRecord();
-  } catch {
+  } catch (error) {
     if (currentPrediction?.id === predictionId) {
-      showStatus('Payment recovery was not accepted. The original beneficiary and liability remain recorded and payment is still pending.', 'payment-pending');
+      const reason = error instanceof Error && error.message ? ` ${error.message}.`.replace(/\.\.$/, '.') : '';
+      showStatus(`Payment recovery was not accepted.${reason} The original beneficiary and liability remain recorded and payment is still pending. Press the button again.`, 'payment-pending');
     }
     await refreshPublicRecord();
   } finally {
