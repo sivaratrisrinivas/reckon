@@ -34,3 +34,30 @@ test('reduced motion stills the living orb and every transition', async ({browse
   await expect(page.locator('.orb-skin')).toHaveCSS('animation-name', 'none');
   await context.close();
 });
+
+for (const viewport of [{width: 1280, height: 720}, {width: 1024, height: 640}, {width: 390, height: 844}]) {
+  test(`Ask Reckon is fully above the fold at ${viewport.width}x${viewport.height} without scrolling`, async ({browser}) => {
+    const page = await browser.newPage({viewport});
+    await page.goto('/');
+    await expect(page.locator('#remaining')).not.toHaveText('Connecting…');
+    expect(await page.evaluate(() => globalThis.scrollY)).toBe(0);
+    await expect(page.getByRole('button', {name: 'Ask Reckon'})).toBeInViewport({ratio: 1});
+    await page.close();
+  });
+}
+
+test('the header keeps the honesty label short and puts the wallet key detail behind a disclosure', async ({page}) => {
+  await page.goto('/');
+  await expect(page.locator('#wallet-state')).toContainText('EPHEMERAL SANDBOX KEY');
+  await expect(page.locator('#wallet-state')).toBeHidden();
+  await page.getByText('Wallet', {exact: true}).click();
+  await expect(page.locator('#wallet-state')).toBeVisible();
+});
+
+test('the small-screen layout never scrolls sideways', async ({browser}) => {
+  const page = await browser.newPage({viewport: {width: 360, height: 740}});
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'Ask Reckon'})).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await page.close();
+});

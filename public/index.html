@@ -15,7 +15,10 @@
       <a class="wordmark" href="/" aria-label="Reckon home">RECKON<span class="mark">.</span></a>
       <div class="environment">
         <span class="network">LOCAL SANDBOX · TEST MONEY</span>
-        <span class="wallet-line"><span id="wallet-state" class="wallet-state" role="status">Connecting local wallet…</span> <span id="wallet-balance" class="wallet-balance">—</span></span>
+        <details class="wallet-details">
+          <summary>Wallet</summary>
+          <div class="wallet-line"><span id="wallet-state" class="wallet-state" role="status">Connecting local wallet…</span> <span id="wallet-balance" class="wallet-balance">—</span></div>
+        </details>
       </div>
     </header>
 
@@ -23,10 +26,9 @@
       <section class="stage" aria-labelledby="title">
         <div class="orb" aria-hidden="true"><span class="orb-core"></span><span class="orb-skin"></span></div>
         <h1 id="title">An AI that pays when it is wrong.</h1>
-        <p class="lede">It stakes its own test-money life on every forecast. When the money runs out, it is gone for good.</p>
+        <p class="lede">It stakes its own test-money life on every forecast. When the money runs out, it is gone.</p>
         <div class="life" aria-labelledby="life-heading">
-          <p class="eyebrow" id="life-heading">REMAINING LIFE</p>
-          <p class="time" id="remaining">Connecting…</p>
+          <p class="life-row"><span class="eyebrow" id="life-heading">REMAINING LIFE</span> <span class="time" id="remaining">Connecting…</span></p>
           <div class="rule" aria-hidden="true"><span id="meter"></span></div>
           <p id="life-state" class="life-state" role="status">Reading the local chain</p>
           <p id="death-date" class="life-state" hidden></p>
