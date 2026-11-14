@@ -24,6 +24,7 @@
     "build:diagnostic": "cargo build --manifest-path diagnostic-contract/Cargo.toml --release --target wasm32-unknown-unknown --locked",
     "test:diagnostic-contract": "npm run build:diagnostic && tsx tests/diagnostic-contract.ts",
     "archive:evidence": "tsx scripts/archive-evidence.ts",
+    "demo:local": "tsx scripts/demo-local.ts",
     "test:payment-proof": "sh scripts/with-archive-sandbox.sh tsx tests/payment-reconciliation.ts",
     "pretest:payment-proof": "RECKON_TEST=1 sh scripts/check-local.sh"
   },
