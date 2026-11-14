@@ -253,6 +253,41 @@ export async function visiblePrimaryActions(page: Page): Promise<string[]> {
   });
 }
 
+/**
+ * Walks the page with the Tab key and reports every visible control the keyboard cannot reach, and every focused
+ * control without a visible focus indicator. Busy controls use aria-disabled and must stay reachable.
+ */
+export async function auditKeyboardReach(page: Page): Promise<string[]> {
+  const focusables = await page.evaluate(() => {
+    const scope: ParentNode = document.querySelector('dialog:modal') ?? document;
+    return [...scope.querySelectorAll('button:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])')]
+      .filter(element => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden')
+      .map(element => `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''} "${(element.textContent ?? '').trim().slice(0, 30)}"`);
+  });
+  await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+  const reached = new Set<string>();
+  const issues: string[] = [];
+  for (let presses = 0; presses < focusables.length + 4; presses += 1) {
+    await page.keyboard.press('Tab');
+    const focus = await page.evaluate(() => {
+      const element = document.activeElement;
+      if (!element || element === document.body) return null;
+      const style = getComputedStyle(element);
+      return {
+        name: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''} "${(element.textContent ?? '').trim().slice(0, 30)}"`,
+        outlineVisible: style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2,
+        insideModal: document.querySelector('dialog:modal') === null || element.closest('dialog:modal') !== null,
+      };
+    });
+    if (!focus) continue;
+    reached.add(focus.name);
+    if (!focus.outlineVisible) issues.push(`${focus.name} shows no visible focus indicator`);
+    if (!focus.insideModal) issues.push(`${focus.name} is reachable behind the modal dialog`);
+  }
+  for (const expected of focusables) if (!reached.has(expected)) issues.push(`${expected} is not reachable with the Tab key`);
+  return issues;
+}
+
 /** Finds animations that would run forever or exceed the brief transition budget. */
 export async function auditMotion(page: Page): Promise<string[]> {
   return page.evaluate(() => {
@@ -280,6 +315,8 @@ export interface StateAuditOptions {
   maximumPrimaryActions: number;
   /** Text-size and viewport sweep is costly; states that only change copy may skip it. */
   sweepViewports?: boolean;
+  /** The Tab walk moves focus; a state whose focus the test is still asserting skips it and walks the keyboard itself. */
+  keyboard?: boolean;
 }
 
 /** Runs the shared accessibility audit for the state currently on screen. */
@@ -296,6 +333,7 @@ export async function auditState(page: Page, name: string, options: StateAuditOp
   expect(primary.length, `${name}: at most one primary action, found ${JSON.stringify(primary)}`).toBeLessThanOrEqual(options.maximumPrimaryActions);
   expect(await auditContrast(page), `${name}: contrast and metadata size`).toEqual([]);
   expect(await auditMotion(page), `${name}: motion`).toEqual([]);
+  if (options.keyboard !== false) expect(await auditKeyboardReach(page), `${name}: keyboard reach and focus visibility`).toEqual([]);
   if (options.sweepViewports !== false) {
     for (const viewport of AUDIT_VIEWPORTS) {
       await page.setViewportSize(viewport);

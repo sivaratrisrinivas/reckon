@@ -202,7 +202,7 @@ test('the approval dialog is keyboard operable, focuses its title, and Escape ca
     - button "Approve stake in local wallet"
     - button "Cancel"
   `);
-  await auditState(page, 'approval dialog', {maximumPrimaryActions: 1, sweepViewports: false});
+  await auditState(page, 'approval dialog', {maximumPrimaryActions: 1, sweepViewports: false, keyboard: false});
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => document.activeElement?.id)).toBe('approve-challenge');
   for (let presses = 0; presses < 4; presses += 1) {
