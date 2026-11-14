@@ -81,7 +81,7 @@ async function receiptFailures(hash: string, signer: string): Promise<string[]> 
 async function cli(args: string[]): Promise<{hash: string; output: string}> {
   const {stdout, stderr} = await run('./scripts/with-local-env.sh', ['near', ...args], {maxBuffer: 8 * 1024 * 1024, timeout: 240_000});
   // Strip terminal colours; the CLI prints the transaction id on its own line.
-  const output = `${stdout}\n${stderr}`.replace(/\u001b\[[0-9;]*m/g, '');
+  const output = `${stdout}\n${stderr}`.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '');
   const hash = /Transaction ID:\s*([1-9A-HJ-NP-Za-km-z]{43,44})/.exec(output)?.[1];
   if (!hash) throw new Error(`The CLI did not report a transaction id:\n${output.slice(-800)}`);
   return {hash, output};
@@ -247,8 +247,13 @@ await bump('oracle-calls.json', PAID_ORACLE_LIMIT, 'Paid oracle call');
 
 let settled = await chain.view<OnChainPrediction>('get_prediction', {id: published.id});
 const cutoff = deadline + 120n * 1_000_000_000n;
+// Void at most once: a refused void is not retried in a loop (each attempt costs gas). After a void
+// attempt, wait at most two more minutes for the state to change, then stop for a human to look.
+let voidAttemptedAt: number | null = null;
 while (settled.settlement_status === 'observing' || settled.settlement_status === 'waiting') {
-  if (await chain.optimisticBlockTimestampNs() >= cutoff) {
+  if (voidAttemptedAt !== null && Date.now() - voidAttemptedAt > 120_000) throw new Error('The prediction is still unsettled two minutes after the void attempt; stopping without further transactions');
+  if (voidAttemptedAt === null && await chain.optimisticBlockTimestampNs() >= cutoff) {
+    voidAttemptedAt = Date.now();
     const voided = await chain.keeperCall('void_unsettled_prediction', {prediction_id: published.id});
     await log('void-request', {transaction: voided.transactionHash, succeeded: voided.succeeded, failure: voided.failure});
     await recordCost('void_unsettled_prediction', voided.transactionHash, CHALLENGER);

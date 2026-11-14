@@ -61,7 +61,7 @@ try {
   assert.equal(published.decision, 'yes');
   assert.equal((await chain.predictionChain().activePrediction())?.id, '1');
   const keyAfter = await chain.accessKeyAllowance(contract.accountId, predictionKey.getPublicKey().toString());
-  assert(keyAfter && keyAfter.kind === 'function-call' && keyAfter.allowance < keyBefore.allowance!, 'publication spends from the restricted key allowance');
+  assert(keyAfter && keyAfter.kind === 'function-call' && keyAfter.allowance !== null && keyAfter.allowance < keyBefore.allowance!, 'publication spends from the restricted key allowance');
 
   await assert.rejects(
     chain.predictionChain().publishPrediction({
@@ -72,13 +72,17 @@ try {
       evidence_hash: 'c'.repeat(64),
       evidence_url: `https://evidence.reckon.invalid/${'c'.repeat(64)}.json`,
     }),
-    /unresolved prediction/,
-    'a rejected publication surfaces the contract reason',
+    // The production Wasm is built without panic messages, so the node may report only a generic trap
+    // (also seen on testnet; see docs/live-status.md). Accept either, then attribute the refusal by state.
+    /unresolved prediction|unreachable/,
+    'a second publication while one is unresolved is rejected',
   );
+  assert.equal((await chain.predictionChain().activePrediction())?.id, '1', 'the rejected publication left the first prediction active');
 
   const early = await chain.keeperCall('request_settlement', {prediction_id: '1'});
   assert.equal(early.succeeded, false, 'settlement before the deadline is refused');
-  assert.match(early.failure ?? '', /deadline has not passed/);
+  assert.match(early.failure ?? '', /deadline has not passed|unreachable/);
+  assert.equal((await contract.view<{outcome: string | null}>('get_prediction', {id: '1'})).outcome, null, 'the refused early settlement resolved nothing');
   assert.match(early.transactionHash, /^[1-9A-HJ-NP-Za-km-z]{43,44}$/, 'a failed call still reports its transaction hash');
 
   const timestamp = await chain.optimisticBlockTimestampNs();
