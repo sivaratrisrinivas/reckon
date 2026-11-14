@@ -73,6 +73,7 @@ try {
     keeperPollMs: 500,
   });
   await new Promise<void>(resolve => service!.server.listen(0, '127.0.0.1', resolve));
+  service.keeper.start(); // testnet-main.ts starts the keeper the same way after listen
   const base = `http://127.0.0.1:${(service.server.address() as AddressInfo).port}`;
   const bodies: string[] = [];
   async function get(path: string, init?: RequestInit): Promise<{status: number; body: string}> {
@@ -120,6 +121,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 1_000));
     settled = JSON.parse((await get('/api/predictions?start_id=1&limit=1')).body)[0];
   }
+  if (settled.settlement_status !== 'resolved') console.error('KEEPER DEBUG', (await get('/api/health')).body, JSON.stringify(settled).slice(0, 400), (await chain.optimisticBlockTimestampNs()).toString());
   assert.equal(settled.settlement_status, 'resolved', 'the keeper settled through the declared oracle with its restricted key');
   assert(settled.outcome === 'yes' || settled.outcome === 'no');
   assert(settled.payment === null || settled.payment.status === 'paid', 'a challenger payout is confirmed before it is reported paid');
