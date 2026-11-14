@@ -355,7 +355,8 @@ test('a failed payout stays pending in words and shape until the receipt confirm
   await expect(page.locator(STATE_LABEL)).toHaveText('Payment pending', {timeout: 30_000});
   await expect(page.locator('#forecast-status')).toContainText('resolved YES. Payment is pending and not yet confirmed on chain');
   await expect(page.locator('#forecast-status')).not.toContainText(/Payment confirmed|paid/i);
-  await expect(page.locator('#payment-recovery-state')).toContainText('remains owed');
+  // The failed transfer's callback lands after the pending label first appears (in flight, then failed).
+  await expect(page.locator('#payment-recovery-state')).toContainText('remains owed', {timeout: 30_000});
   await expect(page.locator('#payment-recovery-state')).toContainText('does not create a new wager');
   await expect(page.locator('#retry-payment-button')).toHaveText('Retry payment');
   await expect(page.getByRole('button', {name: 'Ask Reckon'})).toBeVisible();

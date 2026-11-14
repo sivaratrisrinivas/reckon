@@ -330,7 +330,10 @@ export async function auditState(page: Page, name: string, options: StateAuditOp
     const target = globalThis as unknown as {__reckonShift?: number; __reckonShiftBase?: number};
     return (target.__reckonShift ?? 0) - (target.__reckonShiftBase ?? 0);
   });
-  const shiftSources = await page.evaluate(() => JSON.stringify((globalThis as unknown as {__reckonShiftEntries?: unknown[]}).__reckonShiftEntries ?? []).slice(0, 700));
+  const shiftSources = await page.evaluate(() => {
+    const target = globalThis as unknown as {__reckonShiftEntries?: unknown[]; __reckonShiftEntryBase?: number};
+    return JSON.stringify((target.__reckonShiftEntries ?? []).slice(target.__reckonShiftEntryBase ?? 0)).slice(0, 700);
+  });
   expect(shifted, `${name}: layout shift since the previous state: ${shiftSources}`).toBeLessThanOrEqual(0.1);
   const primary = await visiblePrimaryActions(page);
   expect(primary.length, `${name}: at most one primary action, found ${JSON.stringify(primary)}`).toBeLessThanOrEqual(options.maximumPrimaryActions);
@@ -350,9 +353,21 @@ export async function auditState(page: Page, name: string, options: StateAuditOp
     }
     await page.setViewportSize(original);
   }
-  await page.evaluate(() => {
-    const target = globalThis as unknown as {__reckonShift?: number; __reckonShiftBase?: number};
+  // The sweep's own resizes and text-size changes are reported asynchronously. Wait until no new
+  // shift has arrived for half a second, so they are not charged to the next state.
+  await page.evaluate(async () => {
+    const target = globalThis as unknown as {__reckonShift?: number; __reckonShiftBase?: number; __reckonShiftEntries?: unknown[]; __reckonShiftEntryBase?: number};
+    const frame = () => new Promise(resolve => requestAnimationFrame(() => resolve(null)));
+    await frame(); await frame();
+    let last = target.__reckonShiftEntries?.length ?? 0;
+    for (let quiet = 0, rounds = 0; quiet < 5 && rounds < 40; rounds += 1) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const now = target.__reckonShiftEntries?.length ?? 0;
+      quiet = now === last ? quiet + 1 : 0;
+      last = now;
+    }
     target.__reckonShiftBase = target.__reckonShift ?? 0;
+    target.__reckonShiftEntryBase = target.__reckonShiftEntries?.length ?? 0;
   });
 }
 
