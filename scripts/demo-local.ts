@@ -21,7 +21,7 @@ const FAULT_WASM = 'contract/target/wasm32-unknown-unknown/release/reckon_contra
 const ORACLE_FIXTURE_WASM ='contract/target/wasm32-unknown-unknown/release/reckon_oracle_fixture.wasm';
 // 100 NEAR of play money lasts 2,400 simulated seconds of idle upkeep instead of fifteen days.
 const IDLE_LIFE_SECONDS = 2_400;
-const HARD_BUDGET_SECONDS = Number(process.env.RECKON_DEMO_BUDGET_SECONDS ?? 1200);
+const HARD_BUDGET_SECONDS = Number(process.env.RECKON_DEMO_BUDGET_SECONDS ?? 600);
 const SECONDS_BEFORE_DEATH_AT_PUBLICATION = 100;
 const ORACLE_REQUEST_DEPOSIT = NEAR / 50n;
 const PREDICTION_HORIZON_SECONDS = 300;
@@ -360,13 +360,21 @@ async function run(): Promise<void> {
     let verdict: string;
     try {
       const outcome = await direct.send(signer, receiver, actions, options);
-      verdict = outcome.succeeded ? `UNEXPECTEDLY SUCCEEDED (tx ${outcome.hash})` : `tx ${outcome.hash}: ${describeStatus(outcome.status)}`;
+      verdict = outcome.succeeded ? `UNEXPECTEDLY SUCCEEDED (tx ${outcome.hash})` : `tx ${outcome.hash}: ${explain(outcome)}`;
     } catch (error) {
       if (!(error instanceof RpcError)) throw error;
       verdict = error.message;
     }
     expect(verdict.includes(expected), description, `rejected by the chain: ${expected}`);
     return verdict;
+  }
+  // A rejected contract call reports its reason in the receipt logs as well as in the failure status.
+  function explain(outcome: TransactionOutcome): string {
+    return [describeStatus(outcome.status), ...outcome.receipts.flatMap(receipt => receipt.outcome.logs)].join(' | ');
+  }
+  function because(outcome: TransactionOutcome): string {
+    const reason = outcome.receipts.flatMap(receipt => receipt.outcome.logs).find(line => line.length > 0);
+    return reason ?? describeStatus(outcome.status).slice(0, 120);
   }
   async function evidenceTransactions(fromHeight: number, accept: (transaction: ChainTransaction) => boolean): Promise<ChainTransaction[]> {
     const latest = await direct.latest();
@@ -437,13 +445,13 @@ async function run(): Promise<void> {
   const wrongKey = await direct.send(agentFullAccess, agentId, [functionCall('publish_prediction', {
     reference_multiplier: '340823333', reference_decimals: 8, decision: 'no', confidence_ppm: 850_000, evidence_hash: 'f'.repeat(64), evidence_url: 'https://evidence.reckon.invalid/not-a-real-snapshot.json',
   }, GAS_30_TGAS, 0n)]);
-  expect(!wrongKey.succeeded && describeStatus(wrongKey.status).includes('Prediction key is not authorized'), 'even the full-access key cannot publish: the contract checks the configured prediction key', `tx ${wrongKey.hash}`);
+  expect(!wrongKey.succeeded && explain(wrongKey).includes('Prediction key is not authorized'), 'even the full-access key cannot publish: the contract checks the configured prediction key', `tx ${wrongKey.hash}: ${because(wrongKey)}`);
   const outsider = await direct.send(lateTaker, agentId, [functionCall('publish_prediction', {
     reference_multiplier: '340823333', reference_decimals: 8, decision: 'no', confidence_ppm: 850_000, evidence_hash: 'f'.repeat(64), evidence_url: 'https://evidence.reckon.invalid/not-a-real-snapshot.json',
   }, GAS_30_TGAS, 0n)]);
-  expect(!outsider.succeeded && describeStatus(outsider.status).includes('directly'), 'an unauthorized account cannot publish a prediction', `tx ${outsider.hash}`);
+  expect(!outsider.succeeded && explain(outsider).includes('directly'), 'an unauthorized account cannot publish a prediction', `tx ${outsider.hash}: ${because(outsider)}`);
   const faultSetter = await direct.send(agentFullAccess, agentId, [functionCall('set_payment_callback_fault', {enabled: true}, GAS_30_TGAS, 0n)]);
-  expect(!faultSetter.succeeded && describeStatus(faultSetter.status).includes('MethodNotFound'), 'the production Wasm has no test-only fault method', `tx ${faultSetter.hash}`);
+  expect(!faultSetter.succeeded && explain(faultSetter).includes('MethodNotFound'), 'the production Wasm has no test-only fault method', `tx ${faultSetter.hash}: ${because(faultSetter)}`);
   expect(await activePrediction() === null && (await summaryNow()).published === '0', 'none of the unauthorized publications created a prediction');
 
   // -------------------------------------------------------------------------
@@ -551,7 +559,7 @@ async function run(): Promise<void> {
   const observing = await settle(round3, prediction => prediction.settlement_status === 'observing');
   expect(observing.outcome === null, 'the keeper asked the oracle and the round remains unresolved while it waits', `request ${observing.settlement_request_id}`);
   const early = await direct.send(lateTaker, agentId, [functionCall('void_unsettled_prediction', {prediction_id: round3.prediction.id}, GAS_30_TGAS, 0n)]);
-  expect(!early.succeeded && describeStatus(early.status).includes('Settlement window is still open'), 'nobody can void before the 120-second settlement window closes', `tx ${early.hash}`);
+  expect(!early.succeeded && explain(early).includes('Settlement window is still open'), 'nobody can void before the 120-second settlement window closes', `tx ${early.hash}: ${because(early)}`);
   await advance(SETTLEMENT_CUTOFF_SECONDS + 5);
   const settled3 = await settle(round3, prediction => prediction.outcome === 'void' && prediction.payment?.status === 'paid');
   const after3 = await snapshot();
@@ -616,14 +624,14 @@ async function run(): Promise<void> {
   const restrictedAfterDeath = await direct.send({accountId: agentId, key: predictionKey}, agentId, [functionCall('publish_prediction', {
     reference_multiplier: '340823333', reference_decimals: 8, decision: 'no', confidence_ppm: 850_000, evidence_hash: 'e'.repeat(64), evidence_url: 'https://evidence.reckon.invalid/after-death.json',
   }, GAS_30_TGAS, 0n)]);
-  expect(!restrictedAfterDeath.succeeded && describeStatus(restrictedAfterDeath.status).includes('permanently dead'), 'the restricted prediction key is still valid, but the contract refuses to publish after death', `tx ${restrictedAfterDeath.hash}`);
+  expect(!restrictedAfterDeath.succeeded && explain(restrictedAfterDeath).includes('permanently dead'), 'the restricted prediction key is still valid, but the contract refuses to publish after death', `tx ${restrictedAfterDeath.hash}: ${because(restrictedAfterDeath)}`);
   expect(await activePrediction() === null && (await summaryNow()).published === publishedBeforeBlocked, 'no prediction exists or was created after death', `published ${publishedBeforeBlocked}`);
   const takerBefore = await totalOf(lateTaker.accountId);
   const contractBeforeTake = (await direct.accountState(agentId)).total;
   const lateTake = await direct.send(lateTaker, agentId, [functionCall('challenge_prediction', {prediction_id: round5.prediction.id}, GAS_30_TGAS, NEAR)]);
-  expect(!lateTake.succeeded && describeStatus(lateTake.status).includes('not the active challenge'), 'a take after death is rejected by the contract', `tx ${lateTake.hash}`);
+  expect(!lateTake.succeeded && explain(lateTake).includes('not the active challenge'), 'a take after death is rejected by the contract', `tx ${lateTake.hash}: ${because(lateTake)}`);
   const nextTake = await direct.send(lateTaker, agentId, [functionCall('challenge_prediction', {prediction_id: String(Number(round5.prediction.id) + 1)}, GAS_30_TGAS, NEAR)]);
-  expect(!nextTake.succeeded, 'a take on a would-be next prediction is rejected too', `tx ${nextTake.hash}`);
+  expect(!nextTake.succeeded, 'a take on a would-be next prediction is rejected too', `tx ${nextTake.hash}: ${because(nextTake)}`);
   await waitBlocks(5);
   const takerAfter = await totalOf(lateTaker.accountId);
   expect((await direct.accountState(agentId)).total === contractBeforeTake, 'the rejected 1 NEAR deposits were refunded: the contract account balance did not change', near(contractBeforeTake));
@@ -675,7 +683,7 @@ async function run(): Promise<void> {
   const recovered = await snapshot();
   expect(BigInt(recovered.life.pending_payment_liabilities) === 0n && recovered.life.dead && BigInt(recovered.life.spendable_bankroll) === 0n, 'the liability is cleared while the agent stays dead with zero spendable bankroll', describeLife(recovered.life));
   const duplicate = await direct.send(lateTaker, agentId, [functionCall('retry_payment', {prediction_id: round4.prediction.id}, GAS_30_TGAS, 0n)]);
-  expect(!duplicate.succeeded && describeStatus(duplicate.status).includes('already confirmed'), 'a third party cannot trigger a second payment of a confirmed liability', `tx ${duplicate.hash}`);
+  expect(!duplicate.succeeded && explain(duplicate).includes('already confirmed'), 'a third party cannot trigger a second payment of a confirmed liability', `tx ${duplicate.hash}: ${because(duplicate)}`);
   await waitBlocks(5);
   expect(await totalOf(challenger.accountId) === challengerFinal, 'the beneficiary balance did not change after the duplicate retry');
   const paidTransactions = await evidenceTransactions(round4.afterTake.height, transaction => transaction.methods.includes('retry_payment') && transaction.receiverId === agentId && transaction.signerId !== lateTaker.accountId);
