@@ -8,7 +8,8 @@ import {
   accessKeyList, keyAllowance, NEAR, predictionArgs, sandboxUrl, signAndSend, succeeded, TGAS, type RpcFailure, type SandboxLife, type SignedOutcome,
 } from './rehearsal-support.js';
 
-const PRODUCTION_WASM = 'contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm';
+// RECKON_PERMISSIONS_WASM lets scripts/rehearsal/mutation-check.sh run this file against a mutant build.
+const PRODUCTION_WASM = process.env.RECKON_PERMISSIONS_WASM ?? 'contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm';
 const PUBLISH_GAS = 250n * TGAS;
 const worker = await Worker.init();
 
@@ -137,6 +138,22 @@ try {
 
   // 1c. A caller without the prediction key, even a funded account, cannot publish.
   assert.equal((await keeper.callRaw(locked, 'publish_prediction', predictionArgs(950), {gas: PUBLISH_GAS})).succeeded, false, 'a different caller cannot publish');
+  assert.equal(await locked.view('active_prediction', {}), null, 'the refused caller published nothing');
+
+  // 1c'. Each contract-side guard is needed on its own (each is checked by scripts/rehearsal/mutation-check.sh).
+  // Signer-key guard: the account's own full-access key calls the agent directly, so only the key check refuses it.
+  const unlocked = await deployAgent(2n * NEAR);
+  const ownKeyCall = await signAndSend(url, unlocked.contract.accountId, unlocked.ownerKey, unlocked.contract.accountId, [functionCall('publish_prediction', predictionArgs(951), PUBLISH_GAS, 0n)]);
+  assert(ownKeyCall.accepted && executionFailure(ownKeyCall), `a key other than the prediction key must not publish, even on the agent account: ${JSON.stringify(ownKeyCall)}`);
+  assert.equal(await unlocked.contract.view('active_prediction', {}), null, 'the refused key published nothing');
+  // Caller guard: another account signs with the prediction key itself, so only the direct-caller check refuses it.
+  const impostor = await root.createSubAccount('impostor', {initialBalance: 5n * NEAR});
+  await impostor.batch(impostor).addKey(unlocked.predictionKey.getPublicKey(), fullAccessKey()).transact();
+  const relayed = await signAndSend(url, impostor.accountId, unlocked.predictionKey, unlocked.contract.accountId, [functionCall('publish_prediction', predictionArgs(952), PUBLISH_GAS, 0n)]);
+  assert(relayed.accepted && executionFailure(relayed), `the prediction key must not publish through another account: ${JSON.stringify(relayed)}`);
+  assert.equal(await unlocked.contract.view('active_prediction', {}), null, 'the relayed call published nothing');
+  // Positive control: the same agent accepts the real prediction key, so the refusals above are the guards, not the arguments.
+  published(await publishVia(unlocked.contract, unlocked.predictionKey, 953));
 
   // 1d. The permitted call works from the locked state and every other participant still completes the round.
   const permitted = published(await publishVia(locked, lockedKey, 1));

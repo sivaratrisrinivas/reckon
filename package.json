@@ -25,6 +25,7 @@
     "archive:evidence": "tsx scripts/archive-evidence.ts",
     "test:rehearsal": "tsx tests/rehearsal-static-audit.ts && tsx tests/rehearsal-guards.ts && tsx tests/rehearsal-sizing.ts && tsx tests/operational-assessment.ts && tsx tests/rehearsal-permissions.ts && tsx tests/rehearsal-measurements.ts",
     "pretest:rehearsal": "RECKON_TEST=1 sh scripts/check-local.sh",
+    "test:rehearsal-mutation": "RECKON_TEST=1 sh scripts/check-local.sh && sh scripts/rehearsal/mutation-check.sh",
     "test:payment-proof": "sh scripts/with-archive-sandbox.sh tsx tests/payment-reconciliation.ts",
     "pretest:payment-proof": "RECKON_TEST=1 sh scripts/check-local.sh"
   },

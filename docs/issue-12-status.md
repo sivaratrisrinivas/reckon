@@ -11,9 +11,17 @@ Branch `worktree-agent-a1c7086882fffc7e3`. Nothing live was run: no testnet tran
 5. Operational unavailability shown apart from death; funds neither revive bankroll nor reset allowance; other callers settle and recover. **DONE locally** at the contract level (`tests/rehearsal-permissions.ts`), service (`GET /api/operational`; forecast request refused before inference) and browser (`tests/key-allowance.spec.ts`, `tests/operational-assessment.ts`). Limit: the contract cannot read its key allowance, so its views only show the agent alive; the service reports the cause. A proactive banner before the visitor asks needs a change in `public/` (owned by issue #10).
 6. Preserve transaction, code-identity, key-permission, cost and wallet-journey evidence without secrets; bring scope changes back. **PARTIAL.** Local evidence files with provenance (commit, versions, Wasm SHA-256, commands). Live evidence capture is scripted (`scripts/rehearsal/`, logs redacted, key files mode 600) but **NEEDS HUMAN LIVE RUN**. Scope decisions are in `docs/rehearsal/decisions-needed.md`.
 
-## Known gap in the evidence
+## Mutation gap: resolved (2026-11-15, GS-T71)
 
-A mutation check on the contract did not behave as expected. Removing both publication authorization `require!` checks from `publish_prediction`, rebuilding and running `tests/rehearsal-permissions.ts` still passed, and a direct probe showed publication by a non-key caller still failed on the mutant (`.local/runtime/m2-probe.log`, not committed). The cause is unexplained; the next step was building the mutant into a separate target directory and probing it (`.local/chain-mutation3.sh`, never run). So the claim that the permissions test detects removal of the contract-side authorization is **not established**. The network-side checks (forbidden actions rejected for the restricted key, with control keys accepted) and the browser spec (a mutant that skips the preflight fails it) were shown to fail correctly.
+The earlier report that `tests/rehearsal-permissions.ts` still passed with both publication `require!` guards removed did not reproduce. Built correctly from a copy of `contract/` into its own target directory (never `contract/target`, which `build:contract` and `check-local.sh` own), the mutant is caught: step 1c fails with "a different caller cannot publish". The earlier result was most likely a mutant that was never actually deployed (rebuilt into, then overwritten in, the shared target directory); the unpreserved logs cannot confirm which.
+
+A real weakness remained: step 1c only caught the removal of BOTH guards, because either guard alone refuses a call signed by another account with another key. Added to step 1c:
+
+- the account's own full-access key calling `publish_prediction` directly (only the signer-key guard refuses it);
+- another account signing with the prediction key itself (only the direct-caller guard refuses it);
+- `active_prediction` stays null after each refusal, and a positive control publishes with the real key on the same account.
+
+`scripts/rehearsal/mutation-check.sh` (`npm run test:rehearsal-mutation`, about 3.5 minutes, not in CI) builds three mutants (caller guard removed, key guard removed, both removed), refuses a mutant whose Wasm equals production, and requires the test to fail on a guard assertion, not an unrelated error. Result on this branch: production passes; all three mutants caught (caller: "the prediction key must not publish through another account"; key: "a key other than the prediction key must not publish"; both: "a different caller cannot publish").
 
 ## Last verification run (CI order, one chain, all under the shared lock, at commit `fd2ba4b`)
 
