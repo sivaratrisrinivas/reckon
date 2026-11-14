@@ -701,7 +701,7 @@ async function loadConfiguration() {
     contractAccountId = config.contract_account_id;
     renderChallengeOffer();
     $('provider-label').textContent = providerMode === 'fixture'
-      ? 'FORECAST INPUTS · SCRIPTED LOCAL FIXTURES'
+      ? 'FORECAST INPUTS · SCRIPTED LOCAL FIXTURES · SIMULATED PRICES · ACCELERATED TIMING · NOT LIVE FORECASTING SKILL'
       : 'FORECAST INPUTS · LIVE PROVIDERS';
     const rule = `After its deadline, the keeper requests the declared oracle. The first valid response completed within ${config.settlement_window_seconds} seconds sets the result. Caller timing and provider caching can affect that observation; it is not a historical exact-expiry price. If no valid response arrives in time, the round is void and a challenger is refunded.`;
     $('settlement-rule').textContent = rule;

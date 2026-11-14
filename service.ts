@@ -7,8 +7,12 @@ import {ForecastService, PAYMENT_TRANSFER_TIMEOUT_SECONDS, type FixtureScenario,
 import {SETTLEMENT_WINDOW_SECONDS} from './forecast.js';
 import {publishBlobEvidence} from './evidence-store.js';
 import {ReceiptProofRelay, sandboxReceiptGenesis} from './receipt-proofs.js';
+import {localSigner} from './local-signers.js';
 
-if (existsSync('.env')) process.loadEnvFile('.env');
+// The credential-free local simulation never reads .env and never leaves fixture mode.
+const demoLocal = process.env.RECKON_DEMO_LOCAL === '1';
+if (!demoLocal && existsSync('.env')) process.loadEnvFile('.env');
+const stateDirectory = process.env.RECKON_STATE_DIR ?? '.local';
 
 const providerMode = (process.env.RECKON_PROVIDER_MODE ?? 'fixture') as ProviderMode;
 if (providerMode !== 'fixture' && providerMode !== 'live') throw new Error('RECKON_PROVIDER_MODE must be fixture or live');
@@ -16,6 +20,7 @@ if (providerMode === 'live' && (!process.env.NEAR_AI_API_KEY || !process.env.NEA
   throw new Error('Live mode requires NEAR_AI_API_KEY and NEAR_AI_MODEL; scripted forecasts are disabled.');
 }
 if (providerMode === 'live' && !process.env.BLOB_READ_WRITE_TOKEN) throw new Error('Live mode requires BLOB_READ_WRITE_TOKEN for public evidence storage.');
+if (demoLocal && providerMode !== 'fixture') throw new Error('The credential-free local simulation only runs fixture providers.');
 let fixtureStorageUnavailable = false;
 let testWalletNetworkId: string | null = null;
 
@@ -24,10 +29,13 @@ const root = worker.rootAccount;
 const sandboxRpcUrl = (worker.provider as unknown as {connection: {url: string}}).connection.url;
 const receiptGenesis = await sandboxReceiptGenesis(sandboxRpcUrl);
 const paymentKeeper = await root.createSubAccount('payment-keeper', {initialBalance: 5n * 10n ** 24n});
-const challengerWallet = await root.createSubAccount('challenger', {initialBalance: 25n * 10n ** 24n});
+const challengerWallet = await root.createSubAccount('challenger', {
+  initialBalance: 25n * 10n ** 24n,
+  ...(demoLocal ? {keyPair: localSigner('challenger')} : {}),
+});
 const challengerKey = await challengerWallet.getKey();
 if (!challengerKey) throw new Error('The sandbox challenger wallet key is unavailable');
-const predictionKey = KeyPairEd25519.fromRandom();
+const predictionKey = demoLocal ? localSigner('prediction') : KeyPairEd25519.fromRandom();
 const oracleFixture = providerMode === 'fixture'
   ? await root.devDeploy('contract/target/wasm32-unknown-unknown/release/reckon_oracle_fixture.wasm', {
     initialBalance: 5n * 10n ** 24n,
@@ -35,11 +43,13 @@ const oracleFixture = providerMode === 'fixture'
     args: {owner_id: root.accountId},
   })
   : null;
-const contractWasm = process.env.RECKON_TEST === '1'
+// The local simulation keeps the test endpoints but deploys the production Wasm, without the test-only callback fault.
+const contractWasm = process.env.RECKON_TEST === '1' && !demoLocal
   ? 'contract/target/wasm32-unknown-unknown/release/reckon_contract_callback_fault.wasm'
   : 'contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm';
 const contract = await root.devDeploy(contractWasm, {
   initialBalance: 120n * 10n ** 24n,
+  ...(demoLocal ? {keyPair: localSigner('agent-full-access')} : {}),
   method: 'new',
   args: {
     receipt_genesis: receiptGenesis,
@@ -55,7 +65,7 @@ await contract.batch(contract).addKey(
   functionCallAccessKey(contract.accountId, ['publish_prediction'], 5n * 10n ** 24n),
 ).transact();
 
-const receiptRelay = await ReceiptProofRelay.open(sandboxRpcUrl, contract, `.local/runtime/payment-receipts/${receiptGenesis.genesis_hash}/${contract.accountId}.json`, paymentKeeper);
+const receiptRelay = await ReceiptProofRelay.open(sandboxRpcUrl, contract, `${stateDirectory}/runtime/payment-receipts/${receiptGenesis.genesis_hash}/${contract.accountId}.json`, paymentKeeper);
 
 function submitPaymentOperation(method: string, args: Record<string, string>) {
   return receiptRelay.submit(method, args);
@@ -71,14 +81,14 @@ const chain: PredictionChain = {
 };
 const forecast = new ForecastService(chain, {
   mode: providerMode,
-  evidenceDirectory: '.local/evidence',
+  evidenceDirectory: `${stateDirectory}/evidence`,
   publishEvidence: async (hash, canonical) => {
     if (providerMode === 'live') return publishBlobEvidence(hash, canonical, process.env.BLOB_READ_WRITE_TOKEN!);
     if (fixtureStorageUnavailable) throw new Error('Evidence hosting is unavailable');
     return `https://evidence.reckon.invalid/${hash}.json`;
   },
-  budgetPath: '.local/runtime/forecast-budget.json',
-  lockPath: '.local/runtime/forecast.lock',
+  budgetPath: `${stateDirectory}/runtime/forecast-budget.json`,
+  lockPath: `${stateDirectory}/runtime/forecast.lock`,
   modelApiKey: process.env.NEAR_AI_API_KEY,
   modelId: process.env.NEAR_AI_MODEL,
   testMode: process.env.RECKON_TEST === '1',
@@ -516,6 +526,7 @@ const port = Number(process.env.PORT ?? 4389);
 server.listen(port, '127.0.0.1', () => {
   const providerLabel = providerMode === 'fixture' ? 'scripted external providers for local use' : 'live evidence and model providers';
   console.log(`Reckon local sandbox (${providerLabel}): http://127.0.0.1:${port}`);
+  if (demoLocal) console.log(`RECKON_DEMO_SANDBOX_RPC=${sandboxRpcUrl}`);
 });
 const settlementKeeper = setInterval(() => { void runSettlementKeeper(); }, 1_000);
 void runSettlementKeeper();
