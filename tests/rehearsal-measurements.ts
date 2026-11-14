@@ -78,10 +78,21 @@ try {
   async function take(prediction: {id: string; challenger_stake: string}, who: NearAccount): Promise<OperationRecord> {
     return measure(who, async () => burnOf(await who.callRaw(contract, 'challenge_prediction', {prediction_id: prediction.id}, {attachedDeposit: BigInt(prediction.challenger_stake), gas: 30n * TGAS}) as never));
   }
+  const chainNow = async () => BigInt((await rpc<{header: {timestamp_nanosec: string}}>(url, 'block', {finality: 'optimistic'})).header.timestamp_nanosec);
+  // Move chain time to just past the prediction deadline, plus extra seconds, in small steps so the settlement window is not overshot.
+  async function advancePastDeadline(id: string, extraSeconds = 0n): Promise<void> {
+    const prediction = await contract.view<{deadline_ns: string}>('get_prediction', {id});
+    const target = BigInt(prediction.deadline_ns) + extraSeconds * 1_000_000_000n;
+    for (let step = 0; step < 100 && (await chainNow()) < target; step++) await worker.provider.fastForward(10);
+    assert((await chainNow()) >= target, 'chain time reached the target');
+  }
   // A stalled oracle request ends in a failed receipt by design, so its success is not asserted.
   const callAs = (who: NearAccount, method: string, id: string, expectSuccess = true) => measure(who, async () => {
     const result = await who.callRaw(contract, method, {prediction_id: id}, {gas: PUBLISH_GAS});
-    if (expectSuccess) assert(result.succeeded, `${method} must succeed: ${result.summary()}`);
+    if (expectSuccess) {
+      const state = JSON.stringify(await contract.view('get_prediction', {id}));
+      assert(result.succeeded, `${method} must succeed at chain time ${await chainNow()}: ${result.summary()} prediction ${state}`);
+    }
     return burnOf(result as never);
   });
 
@@ -101,7 +112,7 @@ try {
   const allowanceBefore = (await keyAllowance(url, contract.accountId, predictionKey))!;
   for (let round = 0; round < 6; round++) {
     const {prediction, record} = await publish();
-    await worker.provider.fastForward(300);
+    await advancePastDeadline(prediction.id);
     await oracleScenario('below');
     series.push({publication: record, settlement: await callAs(keeper, 'request_settlement', prediction.id)});
   }
@@ -115,7 +126,7 @@ try {
   const winner = await root.createSubAccount('winning-challenger', {initialBalance: 10n * NEAR});
   const won = await publish('no');
   const wonTake = await take(won.prediction, winner);
-  await worker.provider.fastForward(300);
+  await advancePastDeadline(won.prediction.id);
   await oracleScenario('above');
   const wonSettlement = await callAs(keeper, 'request_settlement', won.prediction.id);
   assert.equal((await contract.view<{payment: {status: string}}>('get_prediction', {id: won.prediction.id})).payment.status, 'paid');
@@ -124,7 +135,7 @@ try {
   const loser = await root.createSubAccount('losing-challenger', {initialBalance: 10n * NEAR});
   const lost = await publish('no');
   await take(lost.prediction, loser);
-  await worker.provider.fastForward(300);
+  await advancePastDeadline(lost.prediction.id);
   await oracleScenario('below');
   const lostSettlement = await callAs(keeper, 'request_settlement', lost.prediction.id);
 
@@ -132,10 +143,10 @@ try {
   const refunded = await root.createSubAccount('refunded-challenger', {initialBalance: 10n * NEAR});
   const voided = await publish('no');
   await take(voided.prediction, refunded);
-  await worker.provider.fastForward(300);
+  await advancePastDeadline(voided.prediction.id);
   await oracleScenario('stalled');
   const voidRequest = await callAs(keeper, 'request_settlement', voided.prediction.id, false);
-  await worker.provider.fastForward(121);
+  await advancePastDeadline(voided.prediction.id, 121n);
   const voidCall = await callAs(keeper, 'void_unsettled_prediction', voided.prediction.id);
   assert.equal((await contract.view<{payment: {status: string}; outcome: string}>('get_prediction', {id: voided.prediction.id})).payment.status, 'paid');
 
@@ -145,7 +156,7 @@ try {
   const owed = await publish('no');
   await take(owed.prediction, failing);
   await failing.delete(root.accountId);
-  await worker.provider.fastForward(300);
+  await advancePastDeadline(owed.prediction.id);
   await oracleScenario('above');
   const failedPayoutSettlement = await callAs(keeper, 'request_settlement', owed.prediction.id);
   assert.equal((await contract.view<{payment: {status: string}}>('get_prediction', {id: owed.prediction.id})).payment.status, 'pending');

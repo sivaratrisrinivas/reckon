@@ -27,6 +27,7 @@ async function main(): Promise<void> {
   const measurement = await markedJson(required(options, '--measurement-log'), 'REHEARSAL_MEASUREMENT');
   const completeRound = await markedJson(required(options, '--complete-round-log'), 'COMPLETE_ROUND_MEASUREMENT');
   const paymentProof = await markedJson(required(options, '--payment-proof-log'), 'PAYMENT_PROOF_MEASUREMENT');
+  const paymentRecovery = await markedJson(required(options, '--complete-round-log'), 'PAYMENT_RECOVERY_MEASUREMENT');
   const wasmPath = 'contract/target/wasm32-unknown-unknown/release/reckon_contract.wasm';
   const wasm = await readFile(wasmPath);
   const cargoLock = await readFile('contract/Cargo.lock', 'utf8');
@@ -73,6 +74,7 @@ async function main(): Promise<void> {
     measured_by_this_task: measurement,
     reused_existing_measurements: {
       complete_round: {source: 'tests/settlement-contract.ts COMPLETE_ROUND_MEASUREMENT', value: completeRound},
+      payment_retry_after_failed_transfer: {source: 'tests/settlement-contract.ts PAYMENT_RECOVERY_MEASUREMENT', value: paymentRecovery},
       payment_receipt_reconciliation: {source: 'tests/payment-reconciliation.ts PAYMENT_PROOF_MEASUREMENT (archive sandbox, local only; the live initializer has no verifier)', value: paymentProof},
     },
   }, null, 2)}\n`);
