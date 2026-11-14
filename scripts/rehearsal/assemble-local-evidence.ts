@@ -71,6 +71,13 @@ async function main(): Promise<void> {
     label: LABEL,
     warning: 'These numbers come from the production Wasm on a local NEAR sandbox with a fixture oracle that charges no worker fee and answers in a few blocks. They are not testnet measurements and do not establish live oracle cost, latency, gas price or model cost.',
     provenance,
+    field_notes: [
+      'gas_burnt and tokens_burnt_yocto are totals over the transaction and every receipt it produced, in yoctoNEAR of gas at the sandbox gas price.',
+      'payer_net_yocto is the fall in the paying account balance after gas refunds landed; contract_net_yocto is the fall in the agent account balance.',
+      'For take, challenger-win settlement, void, and retry the agent balance also moves the principal stakes or payout, so contract_net_yocto there is not an operating cost.',
+      'The stalled-oracle request shows contract_net_yocto equal to the 0.02 NEAR deposit: the fixture oracle keeps the deposit when it never answers. Whether the real oracle refunds it is unmeasured.',
+      'The publication series proves the key allowance falls by exactly the gas burnt, while the network requires a larger amount up front (required_allowance_per_publication_yocto_by_prepaid_gas).',
+    ],
     measured_by_this_task: measurement,
     reused_existing_measurements: {
       complete_round: {source: 'tests/settlement-contract.ts COMPLETE_ROUND_MEASUREMENT', value: completeRound},

@@ -28,6 +28,8 @@ export type Assumptions = {
   failed_call_percent: bigint;
   storage_headroom_percent: bigint;
   settlement_cost_headroom: bigint;
+  /** Share of settlement requests whose oracle deposit is not refunded because the oracle never answers. */
+  stalled_request_percent: bigint;
   unmodelled_margin_percent: bigint;
   prepaid_gas_tgas: string;
   allowance_rounding_yocto: bigint;
@@ -42,6 +44,7 @@ export const PROPOSED_ASSUMPTIONS: Assumptions = {
   failed_call_percent: 20n,
   storage_headroom_percent: 125n,
   settlement_cost_headroom: 2n,
+  stalled_request_percent: 10n,
   unmodelled_margin_percent: 25n,
   prepaid_gas_tgas: '30',
   allowance_rounding_yocto: 10n ** 22n,
@@ -85,6 +88,8 @@ export function sizeReserve(measured: SizingMeasurements, live: RecordedLiveObse
   const publicationGas = calls * measured.publication_net_account_cost_yocto * assumptions.gas_burn_headroom * assumptions.gas_price_headroom;
   const oracleWorker = publications * live.oracle_worker_charge_worst_yocto * assumptions.settlement_cost_headroom;
   const oracleDepositFloat = live.oracle_attached_deposit_yocto;
+  // The fixture oracle kept the deposit of a stalled request; whether the real oracle refunds it is unmeasured, so assume it does not.
+  const stalledDeposits = ceilDiv(publications * assumptions.stalled_request_percent, 100n) * live.oracle_attached_deposit_yocto;
   const gasFloor = required * assumptions.gas_price_headroom;
   const components = {
     code_storage_stake_locked_at_deployment_yocto: codeStorage,
@@ -92,6 +97,7 @@ export function sizeReserve(measured: SizingMeasurements, live: RecordedLiveObse
     publication_gas_from_agent_balance_yocto: publicationGas,
     oracle_worker_charges_recorded_live_worst_case_yocto: oracleWorker,
     oracle_request_deposit_float_yocto: oracleDepositFloat,
+    oracle_deposits_assumed_lost_on_stalled_requests_yocto: stalledDeposits,
     minimum_free_funds_for_one_publication_yocto: gasFloor,
   };
   const subtotal = Object.values(components).reduce((sum, value) => sum + value, 0n);
