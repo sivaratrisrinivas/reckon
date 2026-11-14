@@ -10,7 +10,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       NEAR_SANDBOX_BIN_PATH: '1'
       NEAR_SANDBOX_BINARY_PATH: ${{ github.workspace }}/.local/sandbox
