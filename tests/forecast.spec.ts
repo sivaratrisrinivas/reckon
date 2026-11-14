@@ -324,7 +324,15 @@ test('challenge ask checks the local wallet before inference and waits for expli
   const externalFaucetActions = 0;
   expect(externalWalletActions).toBe(0);
   expect(externalFaucetActions).toBe(0);
-  expect(Date.now() - startedAt).toBeLessThan(60_000);
+  const elapsedMs = Date.now() - startedAt;
+  expect(elapsedMs).toBeLessThan(60_000);
+  console.log(`NEWCOMER_FLOW_MEASUREMENT ${JSON.stringify({
+    path: 'funded_local_wallet',
+    reckon_clicks: appClicks,
+    external_wallet_actions: externalWalletActions,
+    external_faucet_actions: externalFaucetActions,
+    elapsed_ms: elapsedMs,
+  })}`);
   await request.post('/test/settlement-scenario', {data: {scenario: 'above'}});
   expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
   await expect(page.locator('#settlement-state')).toContainText('Resolved YES', {timeout: 20_000});
@@ -375,7 +383,16 @@ test('insufficient local funds use one labelled top-up and resume only the activ
   expect(localFundingActions).toBe(1);
   expect(externalWalletActions).toBe(0);
   expect(externalFaucetActions).toBe(0);
-  expect(Date.now() - startedAt).toBeLessThan(60_000);
+  const elapsedMs = Date.now() - startedAt;
+  expect(elapsedMs).toBeLessThan(60_000);
+  console.log(`NEWCOMER_FLOW_MEASUREMENT ${JSON.stringify({
+    path: 'insufficient_local_wallet',
+    reckon_clicks: appClicks,
+    local_funding_actions: localFundingActions,
+    external_wallet_actions: externalWalletActions,
+    external_faucet_actions: externalFaucetActions,
+    elapsed_ms: elapsedMs,
+  })}`);
   await request.post('/test/settlement-scenario', {data: {scenario: 'above'}});
   expect((await request.post('/test/advance', {data: {seconds: 300}})).status()).toBe(204);
   await expect(page.locator('#settlement-state')).toContainText('Resolved YES', {timeout: 20_000});
@@ -406,6 +423,24 @@ test('cancelled approval and a reload during funding preparation never launch an
   expect((await (await request.get('/test/forecast-stats')).json()).fixture_model_calls).toBe(callsBeforeReloadIntent);
   expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
   await expect(page.getByRole('button', {name: 'Just watch'})).toBeVisible();
+});
+
+test('expired local wallet preparation cannot launch a forecast after funding', async ({page, request}) => {
+  await scenario(request, 'publish');
+  await request.post('/test/wallet-scenario', {data: {scenario: 'insufficient'}});
+  await page.clock.install();
+  await page.goto('/');
+  const callsBefore = (await (await request.get('/test/forecast-stats')).json()).fixture_model_calls;
+
+  await page.getByRole('button', {name: 'Ask Reckon'}).click();
+  await expect(page.locator('#wallet-preparation')).toBeVisible();
+  await page.clock.fastForward(60_001);
+  await page.getByRole('button', {name: 'Fund local test wallet'}).click();
+
+  await expect(page.locator('#forecast-status')).toContainText('preparation expired');
+  await expect(page.locator('#wallet-preparation')).toBeHidden();
+  expect((await (await request.get('/test/forecast-stats')).json()).fixture_model_calls).toBe(callsBefore);
+  expect((await (await request.get('/api/predictions/active')).json()).prediction).toBeNull();
 });
 
 test('a lost local challenger race is reported as a failed attempt', async ({page, request}) => {
