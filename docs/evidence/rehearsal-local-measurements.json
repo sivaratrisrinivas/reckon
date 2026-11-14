@@ -3,7 +3,7 @@
   "warning": "These numbers come from the production Wasm on a local NEAR sandbox with a fixture oracle that charges no worker fee and answers in a few blocks. They are not testnet measurements and do not establish live oracle cost, latency, gas price or model cost.",
   "provenance": {
     "captured_on": "2026-11-14",
-    "git_commit": "4612fa9928108aedcb1b3b24a9f8aeef56a4b8f2",
+    "git_commit": "fd2ba4be8ccfcb1c2c48e34e168e37eb6970b49e",
     "node": "v26.13.0",
     "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
     "near_sdk": "5.30.1",
@@ -19,6 +19,13 @@
     ],
     "commands_run_through": "./scripts/with-local-env.sh under the shared heavy-command lock"
   },
+  "field_notes": [
+    "gas_burnt and tokens_burnt_yocto are totals over the transaction and every receipt it produced, in yoctoNEAR of gas at the sandbox gas price.",
+    "payer_net_yocto is the fall in the paying account balance after gas refunds landed; contract_net_yocto is the fall in the agent account balance.",
+    "For take, challenger-win settlement, void, and retry the agent balance also moves the principal stakes or payout, so contract_net_yocto there is not an operating cost.",
+    "The stalled-oracle request shows contract_net_yocto equal to the 0.02 NEAR deposit: the fixture oracle keeps the deposit when it never answers. Whether the real oracle refunds it is unmeasured.",
+    "The publication series proves the key allowance falls by exactly the gas burnt, while the network requires a larger amount up front (required_allowance_per_publication_yocto_by_prepaid_gas)."
+  ],
   "measured_by_this_task": {
     "label": "local sandbox with fixture oracle, not live",
     "environment": {
