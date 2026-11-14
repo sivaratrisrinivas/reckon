@@ -17,11 +17,12 @@ const stateDirectory = process.env.RECKON_STATE_DIR ?? '.local';
 
 const providerMode = (process.env.RECKON_PROVIDER_MODE ?? 'fixture') as ProviderMode;
 if (providerMode !== 'fixture' && providerMode !== 'live') throw new Error('RECKON_PROVIDER_MODE must be fixture or live');
+// Checked before the live-credential checks so the simulation names its own refusal, not a missing key.
+if (demoLocal && providerMode !== 'fixture') throw new Error('The credential-free local simulation only runs fixture providers.');
 if (providerMode === 'live' && (!process.env.NEAR_AI_API_KEY || !process.env.NEAR_AI_MODEL)) {
   throw new Error('Live mode requires NEAR_AI_API_KEY and NEAR_AI_MODEL; scripted forecasts are disabled.');
 }
 if (providerMode === 'live' && !process.env.BLOB_READ_WRITE_TOKEN) throw new Error('Live mode requires BLOB_READ_WRITE_TOKEN for public evidence storage.');
-if (demoLocal && providerMode !== 'fixture') throw new Error('The credential-free local simulation only runs fixture providers.');
 let fixtureStorageUnavailable = false;
 let testWalletNetworkId: string | null = null;
 
@@ -75,7 +76,7 @@ function submitPaymentOperation(method: string, args: Record<string, string>) {
 
 const PUBLISH_GAS = 250n * 10n ** 12n;
 async function sandboxRpcCall(method: string, params: object): Promise<unknown> {
-  const response = await fetch(sandboxRpcUrl, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({jsonrpc: '2.0', id: 'reckon-operational', method, params})});
+  const response = await fetch(sandboxRpcUrl, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({jsonrpc: '2.0', id: 'reckon-operational', method, params}), signal: AbortSignal.timeout(10_000)});
   const body = await response.json() as {result?: unknown; error?: unknown};
   if (!response.ok || body.error) throw new Error(`Sandbox RPC ${method} failed`);
   return body.result;

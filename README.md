@@ -2,6 +2,22 @@
 
 Reckon is an experiment in an AI staking its own bankroll on its predictions. The local browser can request one forecast, inspect its fixed terms, accept one challenge with a funded ephemeral browser signer, and watch the real NEAR sandbox contract settle the round automatically. A deterministic oracle contract replaces only the external oracle boundary in local mode; outcomes and payment receipts still come from the same compiled Reckon contract. All funds in this demonstration are sandbox test money; this is not a testnet or mainnet deployment.
 
+## Honest limits (read before judging)
+
+- **Local sandbox, play money.** Everything you can run here uses a NEAR sandbox started on your own machine and sandbox test money. It is not a testnet or mainnet product, and nothing is hosted.
+- **Linux x86-64 only.** The pinned Node, Rust and sandbox binaries are verified on Linux x86-64 (WSL works); other platforms are untested.
+- **No locked agent.** The final lock (deleting the agent's full-access key so only the restricted prediction key remains) is rehearsed in the sandbox only. It has not been performed on any live account.
+- **Testnet is a rehearsal, not a deployment.** A rehearsal contract exists on `reckon-srinivas-test-2026.testnet` with restricted keys (see [docs/live-status.md](docs/live-status.md) on the `agent/live-testnet` branch). One approved live round on 15 November 2026 paid for an oracle refresh that succeeded, but the model answered with a confidence outside the supported 10% to 90% range, so nothing was published and no live challenge or settlement has happened yet.
+- **Every live prediction needs a paid oracle refresh,** and the testnet oracle worker can fail (two paid refreshes failed on 14 November 2026). A hosted refresher would need a funded full-access key.
+- **Contract failures show no panic message on testnet.** The production Wasm reports a bare `unreachable` trap, so interfaces attribute a refusal by on-chain state, not by message text.
+- **Receipt-proof payment recovery works on the local sandbox only.** The live initializer `new_live` has no receipt verifier; testnet and mainnet proof recovery are not implemented.
+- **Forecast skill is not demonstrated.** The demo's simulated prices, scripted forecasts, accelerated timing and play money never demonstrate live forecasting skill.
+- **No external users.** This is a hackathon project; nobody else uses it.
+
+## Credential-free demo
+
+`./scripts/with-local-env.sh npm run demo:local` (after the build steps below) runs a clearly labelled simulated life ending in verified death: agent win, challenger win, void refund, recoverable payment failure and permanent death, with about 177 balance and state assertions, in about three minutes. It needs no `.env`, refuses live provider mode, exits non-zero on any failed assertion or on its hard time budget, and removes every process and file it started. See [docs/local-demo.md](docs/local-demo.md).
+
 ## Run on Linux x86-64
 
 The verified versions are Rust 1.95.0 with `wasm32-unknown-unknown`, Node 26.13.0, NEAR SDK 5.30.1, and NEAR sandbox 2.14.0. Install Rust using [rustup](https://rustup.rs/). The `rust-toolchain.toml` selects Rust and its Wasm target. On Linux or WSL, install the project-pinned Linux Node binary and put it on `PATH`; do not use a Windows Node binary from WSL. The installer verifies the official SHA-256 hash. The sandbox installation script verifies its downloaded archive's pinned SHA-256 hash.
@@ -85,7 +101,12 @@ After the build above, install Chromium and its Linux system dependencies, then 
 ./scripts/with-local-env.sh npm test
 ./scripts/with-local-env.sh npm run test:diagnostic-contract
 ./scripts/with-local-env.sh npm run audit:high
+./scripts/with-local-env.sh npm run demo:local
+./scripts/with-local-env.sh npm run test:rehearsal
+./scripts/with-local-env.sh npm run test:rehearsal-mutation
 ```
+
+`npm run test:rehearsal` checks restricted-key permissions, the sandbox lock rehearsal, allowance exhaustion and local cost measurements; `GET /api/operational` reports key allowance, reserve and death separately. Sizing in `docs/evidence/rehearsal-local-sizing.json` is PROPOSED from local measurements, not final; see [docs/rehearsal/RUNBOOK.md](docs/rehearsal/RUNBOOK.md) and [docs/rehearsal/decisions-needed.md](docs/rehearsal/decisions-needed.md). `npm run test:rehearsal-mutation` (about four minutes, not in CI) builds contracts with each publication guard removed and fails unless the permissions test catches every one.
 
 `./scripts/with-local-env.sh npm run build:contract` builds the production Reckon contract, a separate callback-fault test artifact, and the deterministic sandbox oracle fixture. The fault setter is absent from the production artifact. `npm run test:payment-proof` exercises real transfer and callback failures, finalized proof recovery, invalid proofs, replay, concurrent relayers, refused retries while a transfer is unconfirmed, conservation of recorded obligations against actual account balances, and recovery after death. The settlement test runs challenged and unchallenged rounds, checks equality, validates oracle callbacks, observes successful payout and refund receipts, and asserts that stalled or invalid observations can be voided. The browser tests also advance sandbox time to show automatic settlement, balance changes, public accuracy, and reload behavior without a reveal action. Fixture oracle latency and gas measure the local callback path, not a paid testnet refresh. The complete-round local measurement is in `docs/evidence/complete-round-local.json`; live oracle latency samples remain in `docs/evidence/testnet-latency-cost-samples.json` and the feasibility record.
 
@@ -95,6 +116,10 @@ If sandbox tests stall or fail, first check the configured sandbox variables and
 
 ## Dependencies and assistance
 
-The contract uses NEAR SDK and `uint`; the local service and verification use NEAR Workspaces, `near-api-js`, `@vercel/blob`, TypeScript, tsx and Playwright. Exact versions are recorded in the lockfiles. The sandbox tooling overrides `tar`, and the Blob SDK's CLI configuration dependency overrides `zod`, to patched versions; run `./scripts/with-local-env.sh npm run audit:high` to check for high and critical advisories, or `./scripts/with-local-env.sh npm audit` to see all severities. The latest audit still reports low and moderate findings. This tooling is for local development only, not a hosted service. npm 12 blocks dependency install scripts by default; the explicit sandbox installer above avoids relying on the older binary that dependency would otherwise install.
+Dependencies. Contract: NEAR SDK 5.30.1 and uint 0.10.0 (Rust 1.95.0). The NEAR SDK pulls in the MPL-2.0 crates `wee_alloc` and `memory_units`, used unmodified. Service and tests: near-workspaces, near-api-js, @vercel/blob, tsx, TypeScript, esbuild, ESLint with typescript-eslint, and Playwright (Chromium), on Node 26.13.0. Local chain: NEAR sandbox (neard 2.14.0), downloaded with a pinned SHA-256. Exact versions are in `package-lock.json` and the `Cargo.lock` files; licenses of the scanned packages are permissive (MIT, Apache-2.0, ISC, BSD, BlueOak) apart from the MPL-2.0 crates above. The sandbox tooling overrides `tar`, and the Blob SDK's CLI configuration dependency overrides `zod`, to patched versions; run `./scripts/with-local-env.sh npm run audit:high` to check for high and critical advisories. The latest audit still reports low and moderate findings. External services used by live mode and the diagnostic: Coinbase public candles, NEAR AI Cloud, `price-oracle.testnet`, Vercel Blob; check their own terms before relying on them. npm 12 blocks dependency install scripts by default; the explicit sandbox installer above avoids relying on the older binary that dependency would otherwise install.
 
-This initial implementation was developed with AI assistance. It has not been deployed or audited for real-money use.
+License. MIT, see [LICENSE](LICENSE).
+
+AI assistance. **[TO BE WRITTEN BY SRINIVAS BEFORE SUBMISSION: which AI tools were used, which parts they produced (code, tests, specification, design, decisions), and how he reviewed them.]** The product also calls an AI model at runtime in live mode (the model configured in `NEAR_AI_MODEL`; its identity is recorded in each evidence snapshot).
+
+It has not been deployed or audited for real-money use.
