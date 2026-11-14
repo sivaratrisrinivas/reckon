@@ -7,4 +7,5 @@ export default [
   ...tseslint.configs.recommended,
   { files: ['public/**/*.js'], languageOptions: { globals: { document: 'readonly', fetch: 'readonly', setInterval: 'readonly' } } },
   { files: ['**/*.ts'], languageOptions: { globals: { process: 'readonly', console: 'readonly' } } },
+  { files: ['scripts/**/*.mjs'], languageOptions: { globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', Buffer: 'readonly' } } },
 ];

@@ -25,7 +25,7 @@ const RESPONSE_FORMAT = {
     },
   },
 };
-const ORACLE_RPC = 'https://rpc.testnet.near.org';
+const ORACLE_RPC = process.env.RECKON_ORACLE_RPC ?? 'https://rpc.testnet.near.org';
 const ORACLE_ACCOUNT = 'price-oracle.testnet';
 const ORACLE_ASSET = 'wrap.near';
 const CANDLES_URL = 'https://api.coinbase.com/api/v3/brokerage/market/products/NEAR-USD/candles';
@@ -97,12 +97,14 @@ export type PredictionChain = {
     evidence_hash: string;
     evidence_url: string;
   }): Promise<OnChainPrediction>;
+  /** Optional preflight: report operational unavailability before any inference or evidence spending. */
+  publicationReadiness?(): Promise<{available: true} | {available: false; cause: string; reason: string}>;
 };
 
 export type ForecastResult =
   | {status: 'published'; prediction: OnChainPrediction; evidence_url: string; provider_mode: ProviderMode; model_id: string}
   | {status: 'abstained'; justification: string; provider_mode: ProviderMode; model_id: string}
-  | {status: 'unavailable'; reason: string; provider_mode: ProviderMode}
+  | {status: 'unavailable'; reason: string; provider_mode: ProviderMode; cause?: string}
   | {status: 'busy'; prediction?: OnChainPrediction | null}
   | {status: 'cooldown'; retry_after_ms: number}
   | {status: 'rate_limited'; retry_after_ms: number};
@@ -224,6 +226,10 @@ export class ForecastService {
 
       const active = await this.chain.activePrediction();
       if (active) return {status: 'busy', prediction: active};
+      const readiness = await this.chain.publicationReadiness?.();
+      if (readiness && !readiness.available) {
+        return {status: 'unavailable', reason: readiness.reason, cause: readiness.cause, provider_mode: this.options.mode};
+      }
 
       const now = (this.options.now ?? Date.now)();
       const budget = await this.readBudget(now);
@@ -343,6 +349,10 @@ export class ForecastService {
       if (error instanceof Error && error.message === 'FORECAST_BUSY') return {status: 'busy'};
       if (error instanceof Error && error.message.startsWith('FORECAST_COOLDOWN:')) {
         return {status: 'cooldown', retry_after_ms: Number(error.message.slice('FORECAST_COOLDOWN:'.length))};
+      }
+      const operationalCause = (error as {operationalCause?: string} | null)?.operationalCause;
+      if (operationalCause && error instanceof Error) {
+        return {status: 'unavailable', reason: error.message, cause: operationalCause, provider_mode: this.options.mode};
       }
       const reason = safeFailureReason(error);
       return {status: 'unavailable', reason, provider_mode: this.options.mode};

@@ -1,0 +1,280 @@
+{
+  "label": "local sandbox with fixture oracle, not live",
+  "warning": "These numbers come from the production Wasm on a local NEAR sandbox with a fixture oracle that charges no worker fee and answers in a few blocks. They are not testnet measurements and do not establish live oracle cost, latency, gas price or model cost.",
+  "provenance": {
+    "captured_on": "2026-11-14",
+    "git_commit": "fd2ba4be8ccfcb1c2c48e34e168e37eb6970b49e",
+    "node": "v26.13.0",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "near_sdk": "5.30.1",
+    "near_sandbox": "neard (release 2.14.0) (build 2.14.0) (commit bc4e9e8cfb03d9e82f027883055624e18576993e) (rustc 1.95.0) (min_protocol 84) (protocol 88) (db 51)",
+    "contract_wasm_sha256": "f763a86919db178ff9187acaa637342244e3020962288a84b6c6bda15f1bebf6",
+    "contract_wasm_bytes": 442785,
+    "commands": [
+      "npm run build:contract",
+      "npx tsx tests/rehearsal-measurements.ts   (prints REHEARSAL_MEASUREMENT)",
+      "npx tsx tests/settlement-contract.ts   (prints COMPLETE_ROUND_MEASUREMENT)",
+      "sh scripts/with-archive-sandbox.sh npx tsx tests/payment-reconciliation.ts   (prints PAYMENT_PROOF_MEASUREMENT)",
+      "npx tsx scripts/rehearsal/assemble-local-evidence.ts --measurement-log ... --complete-round-log ... --payment-proof-log ..."
+    ],
+    "commands_run_through": "./scripts/with-local-env.sh under the shared heavy-command lock"
+  },
+  "field_notes": [
+    "gas_burnt and tokens_burnt_yocto are totals over the transaction and every receipt it produced, in yoctoNEAR of gas at the sandbox gas price.",
+    "payer_net_yocto is the fall in the paying account balance after gas refunds landed; contract_net_yocto is the fall in the agent account balance.",
+    "For take, challenger-win settlement, void, and retry the agent balance also moves the principal stakes or payout, so contract_net_yocto there is not an operating cost.",
+    "The stalled-oracle request shows contract_net_yocto equal to the 0.02 NEAR deposit: the fixture oracle keeps the deposit when it never answers. Whether the real oracle refunds it is unmeasured.",
+    "The publication series proves the key allowance falls by exactly the gas burnt, while the network requires a larger amount up front (required_allowance_per_publication_yocto_by_prepaid_gas)."
+  ],
+  "measured_by_this_task": {
+    "label": "local sandbox with fixture oracle, not live",
+    "environment": {
+      "sandbox": "near-sandbox 2.14.0",
+      "protocol_version": 88,
+      "gas_price_yocto": "100000000",
+      "storage_byte_cost_yocto": "10000000000000000000",
+      "contract_wasm_bytes": 442785,
+      "storage_usage_at_initialization_bytes": "442682",
+      "publication_prepaid_gas": "250000000000000",
+      "evidence_url_length_chars": 134
+    },
+    "required_allowance_per_publication_yocto_by_prepaid_gas": {
+      "30_tgas": "30919650039240600000000",
+      "50_tgas": "50919650039240600000000",
+      "100_tgas": "100919650039240600000000",
+      "250_tgas": "250919650039240600000000"
+    },
+    "operations": {
+      "publication_by_key": {
+        "gas_burnt": "2176146307686",
+        "tokens_burnt_yocto": "217614630768600000000",
+        "payer_net_yocto": "217614630768600000000",
+        "contract_net_yocto": "217614630768600000000",
+        "storage_delta_bytes": "451"
+      },
+      "take": {
+        "gas_burnt": "2183258537530",
+        "tokens_burnt_yocto": "218325853753000000000",
+        "payer_net_yocto": "351954236180588317460317",
+        "contract_net_yocto": "-351735910326835317460317",
+        "storage_delta_bytes": "40"
+      },
+      "settlement_unchallenged_or_agent_win_no_payout": {
+        "gas_burnt": "6722389090749",
+        "tokens_burnt_yocto": "627602396574900000000",
+        "payer_net_yocto": "627602396574900000000",
+        "contract_net_yocto": "0",
+        "storage_delta_bytes": "88"
+      },
+      "settlement_agent_win_challenged": {
+        "gas_burnt": "6731983394079",
+        "tokens_burnt_yocto": "628561826907900000000",
+        "payer_net_yocto": "628561826907900000000",
+        "contract_net_yocto": "0",
+        "storage_delta_bytes": "88"
+      },
+      "settlement_challenger_win_with_paid_payout": {
+        "gas_burnt": "10025146054508",
+        "tokens_burnt_yocto": "913241580450800000000",
+        "payer_net_yocto": "913241580450800000000",
+        "contract_net_yocto": "2344906068845568783068782",
+        "storage_delta_bytes": "175"
+      },
+      "settlement_request_stalled_oracle": {
+        "gas_burnt": "5458222828224",
+        "tokens_burnt_yocto": "501185770322400000000",
+        "payer_net_yocto": "501185770322400000000",
+        "contract_net_yocto": "20000000000000000000000",
+        "storage_delta_bytes": "50"
+      },
+      "void_with_refund_paid": {
+        "gas_burnt": "5426832977810",
+        "tokens_burnt_yocto": "498046785281000000000",
+        "payer_net_yocto": "498046785281000000000",
+        "contract_net_yocto": "345519404024699724075905",
+        "storage_delta_bytes": "90"
+      },
+      "settlement_with_failed_payout": {
+        "gas_burnt": "10241654576434",
+        "tokens_burnt_yocto": "912574176393400000000",
+        "payer_net_yocto": "912574176393400000000",
+        "contract_net_yocto": "0",
+        "storage_delta_bytes": "181"
+      },
+      "retry_payment_success": {
+        "gas_burnt": "5437012051360",
+        "tokens_burnt_yocto": "499064692636000000000",
+        "payer_net_yocto": "499064692636000000000",
+        "contract_net_yocto": "2301688817655600090166785",
+        "storage_delta_bytes": "-3"
+      }
+    },
+    "publication_series": [
+      {
+        "gas_burnt": "2164746307686",
+        "tokens_burnt_yocto": "216474630768600000000",
+        "payer_net_yocto": "216474630768600000000",
+        "contract_net_yocto": "216474630768600000000",
+        "storage_delta_bytes": "451"
+      },
+      {
+        "gas_burnt": "2174007821718",
+        "tokens_burnt_yocto": "217400782171800000000",
+        "payer_net_yocto": "217400782171800000000",
+        "contract_net_yocto": "217400782171800000000",
+        "storage_delta_bytes": "451"
+      },
+      {
+        "gas_burnt": "2176146307686",
+        "tokens_burnt_yocto": "217614630768600000000",
+        "payer_net_yocto": "217614630768600000000",
+        "contract_net_yocto": "217614630768600000000",
+        "storage_delta_bytes": "451"
+      },
+      {
+        "gas_burnt": "2176146307686",
+        "tokens_burnt_yocto": "217614630768600000000",
+        "payer_net_yocto": "217614630768600000000",
+        "contract_net_yocto": "217614630768600000000",
+        "storage_delta_bytes": "451"
+      },
+      {
+        "gas_burnt": "2176146307686",
+        "tokens_burnt_yocto": "217614630768600000000",
+        "payer_net_yocto": "217614630768600000000",
+        "contract_net_yocto": "217614630768600000000",
+        "storage_delta_bytes": "451"
+      },
+      {
+        "gas_burnt": "2176146307686",
+        "tokens_burnt_yocto": "217614630768600000000",
+        "payer_net_yocto": "217614630768600000000",
+        "contract_net_yocto": "217614630768600000000",
+        "storage_delta_bytes": "451"
+      }
+    ],
+    "unchallenged_settlement_series": [
+      {
+        "gas_burnt": "6713269090749",
+        "tokens_burnt_yocto": "626690396574900000000",
+        "payer_net_yocto": "626690396574900000000",
+        "contract_net_yocto": "0",
+        "storage_delta_bytes": "88"
+      },
+      {
+        "gas_burnt": "6722471366349",
+        "tokens_burnt_yocto": "627610624134900000000",
+        "payer_net_yocto": "627610624134900000000",
+        "contract_net_yocto": "0",
+        "storage_delta_bytes": "88"
+      },
+      {
+        "gas_burnt": "6722484530445",
+        "tokens_burnt_yocto": "627611940544500000000",
+        "payer_net_yocto": "627611940544500000000",
+        "contract_net_yocto": "0",
+        "storage_delta_bytes": "88"
+      },
+      {
+        "gas_burnt": "6722471366349",
+        "tokens_burnt_yocto": "627610624134900000000",
+        "payer_net_yocto": "627610624134900000000",
+        "contract_net_yocto": "0",
+        "storage_delta_bytes": "88"
+      },
+      {
+        "gas_burnt": "6722471366349",
+        "tokens_burnt_yocto": "627610624134900000000",
+        "payer_net_yocto": "627610624134900000000",
+        "contract_net_yocto": "0",
+        "storage_delta_bytes": "88"
+      },
+      {
+        "gas_burnt": "6722389090749",
+        "tokens_burnt_yocto": "627602396574900000000",
+        "payer_net_yocto": "627602396574900000000",
+        "contract_net_yocto": "0",
+        "storage_delta_bytes": "88"
+      }
+    ],
+    "key_allowance": {
+      "before_series_yocto": "5000000000000000000000000",
+      "after_series_yocto": "4998695666063985200000000",
+      "publications_in_series": 6
+    },
+    "record": {
+      "predictions_recorded": 10,
+      "state_growth_total_bytes": "5933",
+      "state_bytes_per_prediction_average": "593",
+      "storage_stake_per_prediction_yocto": "5930000000000000000000",
+      "code_storage_stake_yocto": "4427850000000000000000000"
+    },
+    "funds_at_end": {
+      "physical_yocto": "116372638176306975879785249",
+      "available_yocto": "111886488176306975879785249",
+      "recorded_obligations_yocto": "96394897114292582379785249",
+      "free_reserve_yocto": "15491591062014393500000000"
+    }
+  },
+  "reused_existing_measurements": {
+    "complete_round": {
+      "source": "tests/settlement-contract.ts COMPLETE_ROUND_MEASUREMENT",
+      "value": {
+        "scenario": "challenged_challenger_win",
+        "environment": "local NEAR sandbox with deterministic oracle fixture",
+        "prediction_id": "2",
+        "total_records_after_round": 2,
+        "outcome": "yes",
+        "payment_status": "paid",
+        "storage_bytes_before_round": "443226",
+        "storage_bytes_after_round": "443859",
+        "storage_growth_bytes": "633",
+        "oracle_fixture_account": "dev-69804-45984.test.near",
+        "oracle_request_attached_near": "0.02",
+        "external_oracle_worker_charge_near": null,
+        "end_to_end_oracle_and_payout_duration_ms": 3633,
+        "end_to_end_gas_burnt_yocto_gas": "10014445047986",
+        "receipt_gas_burnt_yocto_gas": [
+          "2182484108846",
+          "1799029530069",
+          "2752362100162",
+          "223182562500",
+          "223182562500",
+          "1856509794983",
+          "223182562500",
+          "223182562500",
+          "223182562500"
+        ],
+        "successful_receipts": 6,
+        "receipt_count": 9
+      }
+    },
+    "payment_retry_after_failed_transfer": {
+      "source": "tests/settlement-contract.ts PAYMENT_RECOVERY_MEASUREMENT",
+      "value": {
+        "scenario": "concurrent_retries",
+        "amount": "2352815587899319172113289",
+        "storage_bytes_before": "443320",
+        "storage_bytes_after": "443317",
+        "storage_bytes_delta": "-3",
+        "end_to_end_gas_burnt_yocto_gas": "7288756777542",
+        "receipt_gas_burnt_yocto_gas": [
+          "1867279598878",
+          "5421477178664"
+        ]
+      }
+    },
+    "payment_receipt_reconciliation": {
+      "source": "tests/payment-reconciliation.ts PAYMENT_PROOF_MEASUREMENT (archive sandbox, local only; the live initializer has no verifier)",
+      "value": {
+        "environment": "NEAR sandbox 2.14.0, generated genesis, real native transfers",
+        "successful_reconciliation_gas": "4280929267830",
+        "validator_update_gas": "10714628107168",
+        "validator_change_verified": true,
+        "failed_reconciliation_gas": "4442837502750",
+        "storage_usage_bytes": 449677,
+        "beneficiary_paid_once": true
+      }
+    }
+  }
+}
