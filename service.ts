@@ -10,6 +10,15 @@ import {ReceiptProofRelay, sandboxReceiptGenesis} from './receipt-proofs.js';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
+const chainMode = process.env.RECKON_CHAIN ?? 'sandbox';
+if (chainMode === 'testnet') {
+  // Testnet mode has its own entry: no sandbox, no service-held wallet and no test endpoints.
+  await import('./testnet-main.js');
+  await new Promise<never>(() => undefined);
+} else if (chainMode !== 'sandbox') {
+  throw new Error('RECKON_CHAIN must be sandbox or testnet');
+}
+
 const providerMode = (process.env.RECKON_PROVIDER_MODE ?? 'fixture') as ProviderMode;
 if (providerMode !== 'fixture' && providerMode !== 'live') throw new Error('RECKON_PROVIDER_MODE must be fixture or live');
 if (providerMode === 'live' && (!process.env.NEAR_AI_API_KEY || !process.env.NEAR_AI_MODEL)) {
