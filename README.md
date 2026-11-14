@@ -77,7 +77,7 @@ Open http://127.0.0.1:4389, press **Ask Reckon**, then **Challenge Prediction**.
 
 Live mode (`RECKON_PROVIDER_MODE=live`) needs your own NEAR AI and Vercel Blob keys in a private `.env`. It still only publishes to the local sandbox.
 
-Dependencies are listed in `package-lock.json` and the `Cargo.lock` files (all permissive licenses except two unmodified MPL-2.0 crates pulled in by the NEAR SDK); Reckon itself is MIT licensed, see [LICENSE](LICENSE); AI assistance: **[TO BE WRITTEN BY SRINIVAS BEFORE SUBMISSION]**.
+Dependencies are listed in `package-lock.json` and the `Cargo.lock` files (all permissive licenses except two unmodified MPL-2.0 crates pulled in by the NEAR SDK); Reckon itself is MIT licensed, see [LICENSE](LICENSE); AI assistance: I built Reckon with Claude Code, using Matt Pocock's [AI Hero skills](https://www.aihero.dev/skills), and finished the rest with Grok Bot and its Firstmate agent. I directed and reviewed every change.
 
 ## Architecture
 
