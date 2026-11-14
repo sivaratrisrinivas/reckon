@@ -36,7 +36,7 @@ No `.env` file, API key, Vercel token or testnet account is needed, read or pass
 ./scripts/with-local-env.sh npm run demo:local
 ```
 
-Add `-- --hold` to keep the finished simulation's UI open for inspection until you press Ctrl-C:
+Add `-- --hold` to keep the finished simulation's UI open for inspection until you press Ctrl-C (the run prints `HOLDING` after its result, and Ctrl-C then stops the service and removes the temporary directory):
 
 ```sh
 ./scripts/with-local-env.sh npm run demo:local -- --hold
@@ -110,3 +110,5 @@ Only the private `rkd-*` directory the run created is removed. Unrelated process
 - Gas for the keeper account's own transactions (settlement requests and retries) is paid by a separate keeper account and is not part of the contract's reserve.
 - The simulated oracle fee kept by the stalled-oracle fixture is real sandbox money leaving the contract and is counted against the operational reserve.
 - Live Vercel Blob storage, NEAR AI inference, the wallet and the public testnet oracle are not exercised.
+- With this contract build and sandbox 2.14.0, a contract-level rejection (a `require!` failure) reaches the caller as a generic `WebAssembly trap: An unreachable opcode was executed`, without the contract's message. The command still asserts that each of those six calls fails and changes no state. When the node does return the message the command asserts it; otherwise each `PASS` line says so and names the control that proves the condition, not the call, is what is refused (for example, the same key publishes while the agent is alive). This also means a user interface cannot show the contract's own reason for a rejected take from the transaction result alone.
+- `RECKON_DEMO_BUDGET_SECONDS` can shorten the 600-second budget but never extend it. The measured run takes about three to four minutes.
