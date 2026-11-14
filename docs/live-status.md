@@ -32,6 +32,20 @@ Lost to the oracle on failed refreshes: 0.022895 NEAR. Paid oracle calls used: 2
 
 Balances after the last step: agent 9.4890941210 NEAR; challenger 0.4768021913 NEAR. Restricted-key allowances: publication key about 0.29963 NEAR; keeper key 0.4 NEAR.
 
+## Round 3 (15 November 2026, 01:05 IST; the captain approved one round)
+
+Run from the captain's machine with `scripts/live/round.ts round round3` at commit `1eaf109` (keys never left that machine; log and evidence secret-scanned). Evidence: `docs/evidence/live-testnet-round3-2026-11-15.json`.
+
+| # | Action | Signer | Transaction | Cost (NEAR) |
+| --- | --- | --- | --- | --- |
+| 12 | Paid refresh 3: `request_price_data`, 250 Tgas, 0.02 attached. Succeeded: `wrap.near` reference 3.08363333 USD | challenger | `EmvNjZmmjso8LY8au5vqLK5i7Ab2oGGMNVaDPstiiDwj` | 0.0026890591 (gas 0.0012486590, oracle fee 0.0014404001) |
+
+Model call 1 of 6 (NEAR AI Cloud, about 3.3 s) answered with a confidence outside the contract's supported 10% to 90% fair-odds range, so the service refused to publish (`unavailable`, no transaction). The script stopped before the challenge and settlement as designed. No prediction was published, nothing is in flight, and per the one-round approval nothing was retried.
+
+Totals after round 3: paid oracle calls 3 of 4, model calls 1 of 6, lost to the oracle in total 0.0243354 NEAR. Balances: agent 9.4890941210 NEAR (unchanged), challenger 0.4741131322 NEAR.
+
+Finding: a live round can spend a paid refresh and then publish nothing if the model's confidence falls outside 10% to 90%. Calling the model before paying for the refresh (it needs only the candles), or prompting it within the range, would avoid that cost; neither is implemented.
+
 ## What failed and why
 
 1. Attempt 1 was my error: 100 Tgas is too little for `request_price_data`, because `outlayer.testnet` needs more gas to start the execution. The earlier diagnostics prepaid 250 Tgas. The failed receipt sent the deposit to the oracle, not back to the caller.

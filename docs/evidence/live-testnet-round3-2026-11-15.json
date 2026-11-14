@@ -1,0 +1,55 @@
+{
+  "round_id": "round3",
+  "network": "testnet",
+  "agent": "reckon-srinivas-test-2026.testnet",
+  "challenger": "challenger.reckon-srinivas-test-2026.testnet",
+  "forecast_status": "unavailable",
+  "steps": [
+    {
+      "step": "balances",
+      "at": "2026-11-14T19:35:08.604Z",
+      "label": "start",
+      "agent": "9.489094121011202600000000 NEAR",
+      "challenger": "0.476802191255149500000000 NEAR"
+    },
+    {
+      "step": "reference-refresh-receipts",
+      "at": "2026-11-14T19:35:26.554Z",
+      "transaction": "EmvNjZmmjso8LY8au5vqLK5i7Ab2oGGMNVaDPstiiDwj",
+      "failures": []
+    },
+    {
+      "step": "reference-refresh",
+      "at": "2026-11-14T19:35:26.860Z",
+      "transaction": "EmvNjZmmjso8LY8au5vqLK5i7Ab2oGGMNVaDPstiiDwj",
+      "cache_after": {
+        "usd": "308363333e-8",
+        "timestamp": "1794684926229795358",
+        "recency": 300
+      }
+    },
+    {
+      "step": "balances",
+      "at": "2026-11-14T19:35:27.132Z",
+      "label": "after-reference-refresh",
+      "agent": "9.489094121011202600000000 NEAR",
+      "challenger": "0.474113132158284200000000 NEAR"
+    },
+    {
+      "step": "forecast",
+      "at": "2026-11-14T19:35:30.420Z",
+      "status": "unavailable",
+      "elapsed_ms": 3286,
+      "reason": "Model confidence is outside the supported 10%–90% fair-odds range."
+    }
+  ],
+  "costs": [
+    {
+      "label": "reference refresh (request_price_data, 0.02 NEAR attached)",
+      "hash": "EmvNjZmmjso8LY8au5vqLK5i7Ab2oGGMNVaDPstiiDwj",
+      "signer": "challenger.reckon-srinivas-test-2026.testnet",
+      "tokens_burnt": "1248658996865300000000",
+      "gas_burnt": "13602502781153"
+    }
+  ]
+}
