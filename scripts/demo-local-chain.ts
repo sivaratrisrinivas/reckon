@@ -30,6 +30,8 @@ export type TransactionOutcome = {
   succeeded: boolean;
   status: unknown;
   receipts: Receipt[];
+  /** The complete RPC response, so a rejection reason can be found wherever the node puts it. */
+  raw: string;
 };
 
 export class RpcError extends Error {
@@ -112,6 +114,7 @@ export class SandboxChain {
       succeeded: isSuccess(result.status),
       status: result.status,
       receipts: result.receipts_outcome,
+      raw: JSON.stringify(result),
     };
   }
 
@@ -129,6 +132,7 @@ export class SandboxChain {
       succeeded: isSuccess(result.status),
       status: result.status,
       receipts: result.receipts_outcome,
+      raw: JSON.stringify(result),
     };
   }
 

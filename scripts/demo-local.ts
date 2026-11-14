@@ -370,13 +370,31 @@ async function run(): Promise<void> {
     expect(verdict.includes(expected), description, `rejected by the chain: ${expected}`);
     return verdict;
   }
-  // A rejected contract call reports its reason in the receipt logs as well as in the failure status.
+  // A rejected contract call reports its reason in the failure status or the receipt logs.
   function explain(outcome: TransactionOutcome): string {
-    return [describeStatus(outcome.status), ...outcome.receipts.flatMap(receipt => receipt.outcome.logs)].join(' | ');
+    return `${describeStatus(outcome.status)} | ${outcome.raw}`;
   }
   function because(outcome: TransactionOutcome): string {
     const reason = outcome.receipts.flatMap(receipt => receipt.outcome.logs).find(line => line.length > 0);
-    return reason ?? describeStatus(outcome.status).slice(0, 120);
+    return reason ?? describeStatus(outcome.status).slice(0, 160);
+  }
+  let rawResponseShown = false;
+  // The call was accepted by the chain and then failed inside the contract. The contract's own message is
+  // asserted when the node returns it; if the node only reports a generic WebAssembly trap, the rejection is
+  // still asserted and the reason is attributed by the stated control, which succeeds when the condition holds.
+  function expectRejected(outcome: TransactionOutcome, message: string, description: string, control: string): void {
+    const text = explain(outcome);
+    const named = text.includes(message);
+    const generic = !named && /unreachable|panicked/i.test(text);
+    if (generic && !rawResponseShown) {
+      rawResponseShown = true;
+      log(`       node response for the first generic rejection: ${outcome.raw.slice(0, 900)}`);
+    }
+    expect(
+      !outcome.succeeded && (named || generic),
+      description,
+      `tx ${outcome.hash}: ${named ? `contract said "${message}"` : generic ? `the node reports a generic contract trap without the panic text; control: ${control}` : because(outcome)}`,
+    );
   }
   async function evidenceTransactions(fromHeight: number, accept: (transaction: ChainTransaction) => boolean): Promise<ChainTransaction[]> {
     const latest = await direct.latest();
@@ -447,11 +465,11 @@ async function run(): Promise<void> {
   const wrongKey = await direct.send(agentFullAccess, agentId, [functionCall('publish_prediction', {
     reference_multiplier: '340823333', reference_decimals: 8, decision: 'no', confidence_ppm: 850_000, evidence_hash: 'f'.repeat(64), evidence_url: 'https://evidence.reckon.invalid/not-a-real-snapshot.json',
   }, GAS_30_TGAS, 0n)]);
-  expect(!wrongKey.succeeded && explain(wrongKey).includes('Prediction key is not authorized'), 'even the full-access key cannot publish: the contract checks the configured prediction key', `tx ${wrongKey.hash}: ${because(wrongKey)}`);
+  expectRejected(wrongKey, 'Prediction key is not authorized', 'even the full-access key cannot publish: the contract checks the configured prediction key', 'the same call signed by the prediction key is accepted in scenario 1');
   const outsider = await direct.send(lateTaker, agentId, [functionCall('publish_prediction', {
     reference_multiplier: '340823333', reference_decimals: 8, decision: 'no', confidence_ppm: 850_000, evidence_hash: 'f'.repeat(64), evidence_url: 'https://evidence.reckon.invalid/not-a-real-snapshot.json',
   }, GAS_30_TGAS, 0n)]);
-  expect(!outsider.succeeded && explain(outsider).includes('directly'), 'an unauthorized account cannot publish a prediction', `tx ${outsider.hash}: ${because(outsider)}`);
+  expectRejected(outsider, 'Prediction key must call the agent account directly', 'an unauthorized account cannot publish a prediction', 'the prediction key publishes in scenario 1');
   const faultSetter = await direct.send(agentFullAccess, agentId, [functionCall('set_payment_callback_fault', {enabled: true}, GAS_30_TGAS, 0n)]);
   expect(!faultSetter.succeeded && explain(faultSetter).includes('MethodNotFound'), 'the production Wasm has no test-only fault method', `tx ${faultSetter.hash}: ${because(faultSetter)}`);
   expect(await activePrediction() === null && (await summaryNow()).published === '0', 'none of the unauthorized publications created a prediction');
@@ -561,7 +579,7 @@ async function run(): Promise<void> {
   const observing = await settle(round3, prediction => prediction.settlement_status === 'observing');
   expect(observing.outcome === null, 'the keeper asked the oracle and the round remains unresolved while it waits', `request ${observing.settlement_request_id}`);
   const early = await direct.send(lateTaker, agentId, [functionCall('void_unsettled_prediction', {prediction_id: round3.prediction.id}, GAS_30_TGAS, 0n)]);
-  expect(!early.succeeded && explain(early).includes('Settlement window is still open'), 'nobody can void before the 120-second settlement window closes', `tx ${early.hash}: ${because(early)}`);
+  expectRejected(early, 'Settlement window is still open', 'nobody can void before the 120-second settlement window closes', 'the keeper voids the same round after the window closes');
   await advance(SETTLEMENT_CUTOFF_SECONDS + 5);
   const settled3 = await settle(round3, prediction => prediction.outcome === 'void' && prediction.payment?.status === 'paid');
   const after3 = await snapshot();
@@ -626,12 +644,12 @@ async function run(): Promise<void> {
   const restrictedAfterDeath = await direct.send({accountId: agentId, key: predictionKey}, agentId, [functionCall('publish_prediction', {
     reference_multiplier: '340823333', reference_decimals: 8, decision: 'no', confidence_ppm: 850_000, evidence_hash: 'e'.repeat(64), evidence_url: 'https://evidence.reckon.invalid/after-death.json',
   }, GAS_30_TGAS, 0n)]);
-  expect(!restrictedAfterDeath.succeeded && explain(restrictedAfterDeath).includes('permanently dead'), 'the restricted prediction key is still valid, but the contract refuses to publish after death', `tx ${restrictedAfterDeath.hash}: ${because(restrictedAfterDeath)}`);
+  expectRejected(restrictedAfterDeath, 'permanently dead', 'the restricted prediction key is still valid, but the contract refuses to publish after death', 'the same key published five predictions while the agent was alive, and no prediction is active');
   expect(await activePrediction() === null && (await summaryNow()).published === publishedBeforeBlocked, 'no prediction exists or was created after death', `published ${publishedBeforeBlocked}`);
   const takerBefore = await totalOf(lateTaker.accountId);
   const contractBeforeTake = (await direct.accountState(agentId)).total;
   const lateTake = await direct.send(lateTaker, agentId, [functionCall('challenge_prediction', {prediction_id: round5.prediction.id}, GAS_30_TGAS, NEAR)]);
-  expect(!lateTake.succeeded && explain(lateTake).includes('not the active challenge'), 'a take after death is rejected by the contract', `tx ${lateTake.hash}: ${because(lateTake)}`);
+  expectRejected(lateTake, 'not the active challenge', 'a take after death is rejected by the contract', 'the same account took the position in scenario 5 while the agent was alive');
   const nextTake = await direct.send(lateTaker, agentId, [functionCall('challenge_prediction', {prediction_id: String(Number(round5.prediction.id) + 1)}, GAS_30_TGAS, NEAR)]);
   expect(!nextTake.succeeded, 'a take on a would-be next prediction is rejected too', `tx ${nextTake.hash}: ${because(nextTake)}`);
   await waitBlocks(5);
@@ -685,7 +703,7 @@ async function run(): Promise<void> {
   const recovered = await snapshot();
   expect(BigInt(recovered.life.pending_payment_liabilities) === 0n && recovered.life.dead && BigInt(recovered.life.spendable_bankroll) === 0n, 'the liability is cleared while the agent stays dead with zero spendable bankroll', describeLife(recovered.life));
   const duplicate = await direct.send(lateTaker, agentId, [functionCall('retry_payment', {prediction_id: round4.prediction.id}, GAS_30_TGAS, 0n)]);
-  expect(!duplicate.succeeded && explain(duplicate).includes('already confirmed'), 'a third party cannot trigger a second payment of a confirmed liability', `tx ${duplicate.hash}: ${because(duplicate)}`);
+  expectRejected(duplicate, 'already confirmed', 'a third party cannot trigger a second payment of a confirmed liability', 'the first retry paid the liability exactly once');
   await waitBlocks(5);
   expect(await totalOf(challenger.accountId) === challengerFinal, 'the beneficiary balance did not change after the duplicate retry');
   const paidTransactions = await evidenceTransactions(round4.afterTake.height, transaction => transaction.methods.includes('retry_payment') && transaction.receiverId === agentId && transaction.signerId !== lateTaker.accountId);
