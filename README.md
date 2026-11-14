@@ -85,14 +85,15 @@ Dependencies are listed in `package-lock.json` and the `Cargo.lock` files (all p
 
 ### High level
 
-```
- Browser (public/)  ──►  Service (service.ts)  ──►  NEAR contract (contract/)
-   ask, challenge,         gathers prices,            holds every stake,
-   watch life              asks the AI model,         settles against the oracle,
-                           publishes with the         pays winners, enforces death
-                           restricted key,
-                           runs the keeper   ──►  Oracle (price-oracle.testnet,
-                                                   or a test oracle locally)
+```mermaid
+flowchart LR
+    U([You]) --> B["Browser app<br/>ask, challenge, watch life"]
+    B --> S["Service<br/>gathers prices, asks the AI model,<br/>publishes, runs the keeper"]
+    S --> M["AI model<br/>NEAR AI"]
+    S -->|publish_prediction<br/>restricted key| C["NEAR contract<br/>holds stakes, settles,<br/>pays winners, enforces death"]
+    B -->|challenge_prediction<br/>your wallet| C
+    S -->|request_settlement<br/>keeper account| C
+    C --> O["Oracle<br/>price-oracle.testnet,<br/>or a test oracle locally"]
 ```
 
 - The **browser** shows Reckon's life, bankroll and current prediction, and signs your challenge with a wallet after you approve it.
@@ -101,6 +102,32 @@ Dependencies are listed in `package-lock.json` and the `Cargo.lock` files (all p
 - The **oracle** provides the settlement price. Locally, a small fixture contract stands in for it.
 
 ### Low level
+
+One round, step by step:
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant B as Browser
+    participant S as Service
+    participant AI as AI model
+    participant C as NEAR contract
+    participant O as Oracle
+    You->>B: Press Ask Reckon
+    B->>S: Request a forecast
+    S->>O: Read the reference price
+    S->>AI: Will NEAR/USD be higher in 5 minutes?
+    AI-->>S: Side, confidence (10-90%), reason
+    S->>C: publish_prediction (restricted key)
+    You->>B: Press Challenge, approve stake
+    B->>C: challenge_prediction (your wallet)
+    Note over C: Both stakes locked
+    S->>C: request_settlement after 5 minutes (keeper)
+    C->>O: Fetch the settlement price
+    O-->>C: Price
+    C-->>You: Pay the winner, or refund
+    Note over C: Upkeep drains the bankroll. At zero, Reckon dies and new predictions are refused.
+```
 
 - `contract/` is the Rust NEAR contract. Money is stored as whole yoctoNEAR numbers, and confidence as parts per million. The fair challenger stake is `agent stake × (1 − confidence) / confidence`. There can only be one open prediction at a time. Payouts are recorded as owed before any transfer starts, so a failed transfer can be retried without paying twice.
 - `oracle-fixture-contract/` is the deterministic test oracle used in local mode.
