@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#171a19">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#101315">
     <title>Reckon — an AI that stakes its predictions</title>
     <link rel="stylesheet" href="/style.css">
     <script type="module" src="/app.js"></script>
@@ -34,7 +35,7 @@
             <p id="life-state" class="life-state" role="status">Reading the local chain</p>
             <p id="death-date" class="life-state" hidden></p>
           </div>
-          <div class="glyph" aria-hidden="true"><span></span></div>
+          <div id="glyph" class="glyph" data-state="alive" aria-hidden="true"><span></span></div>
         </div>
         <div class="rule" aria-hidden="true"><span id="meter"></span></div>
         <dl class="partition">
@@ -51,17 +52,20 @@
         <p class="eyebrow">ONE OPEN PREDICTION</p>
         <h2 id="forecast-heading">Ask Reckon</h2>
         <p class="forecast-copy">Reckon checks recent NEAR/USD evidence and its settlement reference, then makes one fixed five-minute forecast or abstains. Requesting does not reserve the challenger slot.</p>
+        <div id="state-region" class="state-region" tabindex="-1">
+          <p id="state-label" class="state-label" data-kind="loading">Loading</p>
+          <p id="forecast-status" class="forecast-status" role="status" aria-live="polite">Checking whether Reckon is available.</p>
+        </div>
         <div class="forecast-actions">
           <button id="ask-button" class="primary" type="button">Ask Reckon</button>
           <button id="watch-button" class="secondary" type="button">Just watch</button>
         </div>
-        <p id="forecast-status" class="forecast-status" role="status" aria-live="polite">Checking whether Reckon is available.</p>
-        <p class="note">Ask Reckon checks the local sandbox wallet before inference, then opens the stake approval when ready. No stake moves unless you approve. “Just watch” asks without using a wallet.</p>
+        <p id="forecast-hint" class="note">Ask Reckon checks the local sandbox wallet before inference, then opens the stake approval when ready. No stake moves unless you approve. “Just watch” asks without using a wallet.</p>
 
         <section id="wallet-preparation" class="challenge-panel" hidden aria-labelledby="wallet-preparation-heading">
           <p class="eyebrow">LOCAL WALLET PREPARATION</p>
           <h3 id="wallet-preparation-heading">Add sandbox test money</h3>
-          <p id="wallet-preparation-state" class="challenge-copy" role="status"></p>
+          <p id="wallet-preparation-state" class="challenge-copy"></p>
           <p class="note">This local top-up uses test money on the NEAR sandbox. It does not contact a real faucet or move real funds.</p>
           <div class="dialog-actions">
             <button id="fund-wallet-button" class="primary" type="button">Fund local test wallet</button>
@@ -83,7 +87,7 @@
             <div><dt>Prediction deadline</dt><dd id="deadline"></dd></div>
             <div><dt>Model identity</dt><dd id="model-id"></dd></div>
           </dl>
-          <p id="settlement-state" class="settlement-state" role="status" aria-live="polite"></p>
+          <p id="settlement-state" class="settlement-state"></p>
           <section id="payment-recovery" class="challenge-panel" hidden aria-labelledby="payment-recovery-heading">
             <p class="eyebrow">RECOVERABLE PAYMENT</p>
             <h4 id="payment-recovery-heading">Payment still owed</h4>
@@ -103,9 +107,9 @@
               <div><dt>Network</dt><dd id="challenge-network">Local NEAR sandbox · test money</dd></div>
             </dl>
             <p id="challenge-loss" class="risk-note">You can lose the full stake if Reckon's prediction is correct.</p>
-            <p id="settlement-rule" class="settlement-rule">The prediction resolves using the first successful valid oracle request initiated after the prediction deadline and completed within the configured bounded settlement window. Caller timing and provider caching can affect the observed price; this is not a historical exact-expiry price.</p>
             <button id="challenge-button" class="primary" type="button" disabled>Challenge Prediction</button>
             <p id="transaction-state" class="transaction-state" role="status" aria-live="polite"></p>
+            <p id="settlement-rule" class="settlement-rule">The prediction resolves using the first successful valid oracle request initiated after the prediction deadline and completed within the configured bounded settlement window. Caller timing and provider caching can affect the observed price; this is not a historical exact-expiry price.</p>
           </section>
           <p class="fingerprint-label">Evidence fingerprint (SHA-256)</p>
           <code id="fingerprint" class="fingerprint"></code>
@@ -118,7 +122,7 @@
       <dialog id="challenge-dialog" class="wallet-dialog" aria-labelledby="wallet-dialog-title">
         <div class="wallet-dialog-content">
           <p class="eyebrow">LOCAL WALLET · EXTERNAL SIGNATURE STEP</p>
-          <h3 id="wallet-dialog-title">Approve this challenge</h3>
+          <h3 id="wallet-dialog-title" tabindex="-1" autofocus>Approve this challenge</h3>
           <p>This sandbox wallet will sign a real NEAR transaction and attach the exact quoted stake.</p>
           <dl class="terms approval-terms">
             <div><dt>Your side</dt><dd id="approval-side"></dd></div>
