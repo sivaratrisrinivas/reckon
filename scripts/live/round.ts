@@ -64,6 +64,20 @@ async function cost(hash: string, signer: string): Promise<{tokens_burnt: string
   };
 }
 
+async function receiptFailures(hash: string, signer: string): Promise<string[]> {
+  const outcome = await provider.txStatus(hash, signer, 'FINAL') as unknown as {
+    receipts_outcome: Array<{outcome: {executor_id: string; status: unknown}}>;
+  };
+  const failures: string[] = [];
+  for (const receipt of outcome.receipts_outcome) {
+    const status = receipt.outcome.status;
+    if (typeof status === 'object' && status !== null && 'Failure' in status && status.Failure) {
+      failures.push(`${receipt.outcome.executor_id}: ${JSON.stringify(status.Failure).slice(0, 300)}`);
+    }
+  }
+  return failures;
+}
+
 async function cli(args: string[]): Promise<{hash: string; output: string}> {
   const {stdout, stderr} = await run('./scripts/with-local-env.sh', ['near', ...args], {maxBuffer: 8 * 1024 * 1024, timeout: 240_000});
   // Strip terminal colours; the CLI prints the transaction id on its own line.
@@ -132,7 +146,11 @@ if (command !== 'round') {
 const evidence: Record<string, unknown> = {round_id: roundId, network: 'testnet', agent: AGENT, challenger: CHALLENGER};
 const costs: Array<{label: string; hash: string; signer: string; tokens_burnt: string; gas_burnt: string}> = [];
 async function recordCost(label: string, hash: string, signer: string): Promise<void> {
-  costs.push({label, hash, signer, ...await cost(hash, signer)});
+  try {
+    costs.push({label, hash, signer, ...await cost(hash, signer)});
+  } catch (error) {
+    await log('cost-unavailable', {label, hash, reason: error instanceof Error ? error.message.slice(0, 160) : String(error)});
+  }
 }
 
 const balances: Record<string, {agent: string; challenger: string}> = {};
@@ -152,11 +170,15 @@ await bump('oracle-calls.json', PAID_ORACLE_LIMIT, 'Paid oracle call');
 const refresh = await cli([
   'contract', 'call-function', 'as-transaction', ORACLE, 'request_price_data',
   'json-args', '{"asset_ids":["wrap.near"],"resource_limits":null}',
-  'prepaid-gas', '100 Tgas', 'attached-deposit', '0.02 NEAR',
+  'prepaid-gas', '250 Tgas', 'attached-deposit', '0.02 NEAR',
   'sign-as', CHALLENGER, 'network-config', 'testnet', 'sign-with-legacy-keychain', 'send',
 ]);
 await recordCost('reference refresh (request_price_data, 0.02 NEAR attached)', refresh.hash, CHALLENGER);
-const referenceAfter = await oraclePrice();
+const refreshFailures = await receiptFailures(refresh.hash, CHALLENGER);
+await log('reference-refresh-receipts', {transaction: refresh.hash, failures: refreshFailures});
+if (refreshFailures.length > 0) throw new Error(`The paid reference refresh failed; stopping before any further paid step: ${refreshFailures.join(' | ')}`);
+let referenceAfter = await oraclePrice();
+for (let attempt = 0; !referenceAfter.usd && attempt < 30; attempt += 1) { await sleep(2_000); referenceAfter = await oraclePrice(); }
 await log('reference-refresh', {transaction: refresh.hash, cache_after: referenceAfter});
 if (!referenceAfter.usd) throw new Error('The oracle reference is still unavailable after the paid refresh');
 await snapshotBalances('after-reference-refresh');
@@ -206,7 +228,8 @@ const challenge = await cli([
   'sign-as', CHALLENGER, 'network-config', 'testnet', 'sign-with-legacy-keychain', 'send',
 ]);
 await recordCost('challenge_prediction', challenge.hash, CHALLENGER);
-const challenged = await chain.view<OnChainPrediction>('get_prediction', {id: published.id});
+let challenged = await chain.view<OnChainPrediction>('get_prediction', {id: published.id});
+for (let attempt = 0; challenged.challenger_account_id === null && attempt < 8; attempt += 1) { await sleep(1_500); challenged = await chain.view<OnChainPrediction>('get_prediction', {id: published.id}); }
 await log('challenged', {transaction: challenge.hash, challenger_account_id: challenged.challenger_account_id, challenged_at_ns: challenged.challenged_at_ns});
 if (challenged.challenger_account_id !== CHALLENGER) throw new Error('The challenge was not accepted');
 await snapshotBalances('after-challenge');
