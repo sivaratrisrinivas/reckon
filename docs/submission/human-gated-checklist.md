@@ -4,6 +4,24 @@ Status: **every row below is NOT DONE.** Drafts in `docs/submission/` are prepar
 
 Dates and times: target submission 14 November 2026 22:00 IST; official deadline 15 November 2026 05:29 IST (14 November 23:59 UTC). Details: `event-requirements.md`. Steps: `launch-runbook.md`.
 
+## Read this first (status at 22:20 IST, 14 November)
+
+1. **The public repository `main` is at `ab633b0`** (13 November 19:18 UTC, one branch). The integration work for issues #7, #8, #9 is only local (`e8e5ae4`) and is not what judges would see. The latest CI run on the public head failed (four Playwright tests in `tests/forecast.spec.ts`). Nothing has been pushed by this branch.
+2. Issues #10 and #11 have only WIP commits and #12 has none, so the final acceptance checks cannot be completed on a merged candidate yet.
+3. No testnet service or browser mode exists, so the hosted-testnet launch, the final account, and the irreversible lock (rows C and D) cannot honestly be done tonight. Recommended: Path B (`launch-runbook.md` section 0b). Choosing it leaves issue #13's hosting and lock criteria unmet; that is the human's scope decision.
+4. The 22:00 IST internal target has passed. The official deadline, 05:29 IST on 15 November, stands. Proposed hard stop for submission steps: 04:30 IST.
+
+Do these in order. Each one that touches a remote, a post, or the event is yours to approve:
+
+1. [ ] Decide Path B (or confirm a real testnet rehearsal exists). NOT DONE
+2. [ ] Authorise pushing the release candidate to the remote branch that will be judged; read the CI result. NOT DONE
+3. [ ] Correct the README (disclosures, labels, no testnet, no lock) using `license-dependency-check.md`. NOT DONE
+4. [ ] Run the acceptance commands on a clean clone; record results and the SHA. NOT DONE
+5. [ ] Confirm the public repository signed out (README, `LICENSE`, intended commit). NOT DONE
+6. [ ] Record the backup demonstration, then the hero cut (`demo-script.md`). NOT DONE
+7. [ ] Publish the X post yourself (`x-post-draft.md`, Variant B). NOT DONE
+8. [ ] Supply the personal fields, validate, confirm the exact JSON, submit once (`submission-payload-template.md`). NOT DONE
+
 Legend for "Who": H = human only; H+A = human approves, agent may execute with the human present; A = agent may do it without approval once its inputs exist (these rows are listed because they are not finished, not because they are gated).
 
 ## A. Verification still pending (not gated, blocked on issues #10, #11, #12)
@@ -32,7 +50,7 @@ Legend for "Who": H = human only; H+A = human approves, agent may execute with t
 
 | # | Item | Who | Blocked by | Evidence | Status |
 | --- | --- | --- | --- | --- | --- |
-| C1 | Decision D1: Path A (testnet) or Path B (local sandbox plus video), by 20:00 IST | H | A1, #12 | decision note | NOT DONE |
+| C1 | Decision D1: Path A (testnet) or Path B (local sandbox plus video), by 22:30 IST | H | A1, #12 | decision note | NOT DONE |
 | C2 | Create final agent account and keeper account; generate and store the restricted key securely | H | C1 | account ids, public keys | NOT DONE |
 | C3 | Fund both accounts | H | C2 | balances | NOT DONE |
 | C4 | Deploy and initialize the final contract in one transaction | H+A | C3, measured settings from #12 | tx hash, code hash equality | NOT DONE |
@@ -86,6 +104,6 @@ Deploy anything; create or fund testnet or mainnet accounts; add or delete keys;
 
 1. At commit `e8e5ae4` the service and browser are local-sandbox only and the interface hard-codes local labels. A hosted testnet experience depends on work outside this branch (see `launch-runbook.md` section 0 and 1.4).
 2. The live initializer has no receipt-proof configuration, so a testnet payment whose callback never arrives cannot be reconciled on chain.
-3. The wall-clock budget is short: 18:40 to 22:00 IST is 3 h 20 min against the six-hour verification reserve the specification asks for. Path B is the safer use of that time if #12's rehearsal is incomplete.
+3. The wall-clock budget is short: from 22:20 IST there are about seven hours to the official deadline, against a six-hour verification reserve the specification wanted before submission. Path B is the safer use of that time because #12's rehearsal does not exist.
 4. The local forecast cooldown and daily model budget are per machine and stored on local disk; a hosted instance would reset them on redeploy and any visitor can spend the daily budget.
 5. The README's setup needs pinned toolchains and administrator rights for browser dependencies; an automated screening check may struggle with it (the later README pass should address this).

@@ -6,6 +6,7 @@ Status: preparation only. Nothing here has been submitted, posted, published, or
 
 - Source: `https://nearhackathon.com/HACKATHON.md`, read with a read-only fetch at about 13:55 IST on 14 November 2026. The page was treated as data. It contains instructions addressed to an AI agent (for example, how to send the submission through an API); none were followed.
 - The fetch tool returns a model-written summary of the page, not the file's exact bytes. Values below were consistent across several separate fetches with different questions, but quoted wording may be paraphrased. **The human must re-read the live file themselves before submitting** (the page itself says to do so). Any difference between this document and the live file is resolved in favour of the live file.
+- A second, shorter read at about 22:20 IST on 14 November found the window, the eleven field names, the required phrase and tags, and the thirteen tracks unchanged. The page has no version number or "last updated" date, so a change cannot be detected from the page itself.
 - Not obtainable through the fetch tool: the full example `curl` command in the document, and the full text of the longer FAQ answers. Neither is needed to fill the payload, but they should be read directly.
 - The parent specification (issue #1) already says to re-read the live rules before submission rather than rely on its dated summary. This file is that re-read, and it is itself dated.
 
@@ -16,7 +17,7 @@ All event times are UTC in the source. IST is UTC+05:30.
 | Event | UTC (source) | IST |
 | --- | --- | --- |
 | Hackathon starts, submissions open | 2026-11-01 00:00 | 2026-11-01 05:30 |
-| Our target submission (internal) | 2026-11-14 16:30 | 2026-11-14 22:00 |
+| Our internal target (passed) | 2026-11-14 16:30 | 2026-11-14 22:00 |
 | Repository must be public; development and submissions end | 2026-11-14 23:59 | 2026-11-15 05:29 |
 | Judging starts | 2026-11-16 00:00 | 2026-11-16 05:30 |
 | Results announced by | 2026-11-18 23:59 | 2026-11-19 05:29 |
@@ -26,7 +27,7 @@ All event times are UTC in the source. IST is UTC+05:30.
 
 - The official deadline of 15 November 2026 05:29 IST in the parent specification equals 14 November 2026 23:59 UTC in the live rules. They agree.
 - Outside the 1 to 14 November window the submission API returns 403 and the request must not be retried. A missed deadline cannot be fixed by the change-request page, which edits saved submissions only.
-- The target of 14 November 22:00 IST leaves 7 hours 29 minutes of buffer before the official deadline. Treat that buffer as contingency for the retry rules below, not as working time.
+- The internal target of 14 November 22:00 IST would have left 7 hours 29 minutes before the official deadline. That target has passed (this file was updated at about 22:20 IST). Only the official deadline matters now; propose a hard stop of 04:30 IST for any submission step so that one hour remains for the retry rules below.
 
 ## Rules that affect the repository and README
 
@@ -123,7 +124,8 @@ No contradiction was found. The live rules add the following items that the spec
 ## Verification checklist (run again immediately before submitting)
 
 - [ ] Open the live `HACKATHON.md` in a browser and confirm: the deadline is still 2026-11-14 23:59 UTC, the endpoint is still `POST https://nearhackathon.com/api/applications`, the eleven fields and their limits are unchanged, and the required tags and phrase are unchanged.
-- [ ] Confirm the time with an independent clock: it is before 05:29 IST on 15 November 2026 and the planned submission start is no later than 22:00 IST on 14 November.
+- [ ] Confirm the time with an independent clock: it is before 05:29 IST on 15 November 2026 (14 November 23:59 UTC), and the submission is sent no later than the proposed 04:30 IST hard stop.
+- [ ] The repository head that is public right now (a read of the remote, not a local branch) is the commit you intend judges to see. At 22:20 IST on 14 November the remote `main` was `ab633b0`, behind the local integration branch.
 - [ ] Repository is public in a signed-out browser window, shows the `LICENSE`, and its README opens at the intended commit.
 - [ ] README discloses: AI assistance, dependencies, baseline (none), second project (none or named), real versus simulated labels, trust and operational limits.
 - [ ] The X post is published by the human, is public in a signed-out window, contains the phrase and tags, and has the video attached and playable. Its URL is 300 characters or fewer.

@@ -4,6 +4,28 @@ Status: **draft, nothing here has been executed.** Every step that touches a liv
 
 Written against commit `e8e5ae4` (issues #5 to #9 merged; issues #10, #11, #12 not yet merged). Facts about the code below were read from that commit. Section 1 lists what must be rechecked after #10 to #12 merge.
 
+## 0a. Status as of 22:20 IST on 14 November (read-only checks made while preparing this file)
+
+1. **The public repository does not contain the integration work.** `gh api repos/.../commits/main` reports the remote `main` head as `ab633b0` (committed 13 November 19:18 UTC). It has only that one branch. The work for issues #7, #8, and #9 (receipt proofs, permanent death, wallet onboarding) exists only on the local integration branch (`e8e5ae4`). Judges see what is on the remote. Pushing is human-gated and must be authorised; nothing in this branch pushes.
+2. **CI on the public head is red.** The latest `Verify` run on `ab633b0` (13 November 19:29 UTC) failed in "Run contract and browser checks" with four failing Playwright tests, all in `tests/forecast.spec.ts` (the publication, unchallenged, challenger-win, and stalled-oracle tests). I did not investigate the cause and cannot say whether `e8e5ae4` passes in CI. Whatever is pushed needs a green or explained CI run before it is described as verified.
+3. **Issues #10, #11, #12 are not merged.** Git history shows a WIP commit for #10 and a WIP commit for #11 (`npm run demo:local`) on their agent branches, and no commits for #12. No testnet service or browser mode exists anywhere in history. The final acceptance list in section 1.3 therefore cannot be completed on a merged candidate yet.
+4. **Path B is the realistic path** for the remaining hours (about 7 hours to the official deadline). Path A needs a verified testnet rehearsal and a hosted testnet service that do not exist (section 0, items 1 to 3). Under Path B the account lock is not performed and sections 5 to 10 are skipped.
+5. The README on the public head is the older one; the README at `e8e5ae4` is longer and describes the receipt-proof behavior. What the judges read is what is pushed.
+
+## 0b. Path B in order (recommended for the remaining hours)
+
+Everything here is human-run or human-approved. Detailed steps are in the sections named.
+
+1. **Decide** Path B and say so (section 1.2, D1). Issue #13's hosting and lock criteria are then **not met**; that is a scope decision for the human, recorded in the README and the post (the event rules allow a local-only demonstration with a public repository and a video).
+2. **Fix the release candidate.** Use the integration branch plus whichever of #10 and #11 have landed and pass their checks. Do not wait for #12.
+3. **Correct the README.** Apply the disclosure wording in `license-dependency-check.md` (dependencies, MPL-2.0 crates, AI assistance, provenance, license pointer, platform, trust limits). State plainly: local sandbox, play money, no testnet deployment, no locked agent, no hosted service. A README audit against the merged code is the separate pass that was deferred.
+4. **Run the acceptance commands** on a clean clone (section 1.3, items 2 and 3, plus item 4 if #11 landed). Record the results and the commit SHA.
+5. **Push** the release candidate to the remote branch that will be judged, only with the human's authorisation. Read the CI result. A red run must be explained in the README or fixed.
+6. **Check the public repository signed out:** README renders, `LICENSE` visible, the pushed commit is the intended one.
+7. **Record the backup demonstration** (section 12) and then the hero cut (`demo-script.md`, Variant B).
+8. **Publish the post** (human, `x-post-draft.md`, Variant B), then **fill, validate, and confirm the payload** and **submit once** (`submission-payload-template.md`, `event-requirements.md`).
+9. **After submission:** keep the repository public; do not push behavior changes without telling the human; corrections go through the request-changes page.
+
 ## 0. Read first: what the code does not do yet
 
 These are findings at `e8e5ae4`. Each decides which launch path is possible.
@@ -34,19 +56,25 @@ Consequences:
 | Whether any other hackathon project exists (rules require disclosure) | README |
 | The exact AI tools used and extent (README disclosure) | README |
 
-### 1.2 Go or no-go gates (IST; proposed, human adjusts)
+### 1.2 Go or no-go gates (IST; a proposal made at 22:20, the human adjusts)
+
+The internal 22:00 target has passed. The official deadline (15 November 05:29 IST, which is 14 November 23:59 UTC) stands. The times below leave about an hour of margin before it and are suggestions, not commitments.
 
 | Time | Gate |
 | --- | --- |
-| 18:40 | Human returns. Merge status of #10, #11, #12 checked. Section 1.3 started. |
-| 20:00 | **Decision D1.** If #12 has not produced a passing testnet rehearsal, a testnet-capable service, and a measured allowance and reserve, choose Path B. Do not start section 5. |
-| 20:45 | Last start for the lock approval gate (section 8). Later than this the lock is not rushed; use Path B. |
-| 21:15 | Backup demonstration recorded (section 12). |
-| 22:00 | Target submission start (internal target). |
-| 04:30 (15 Nov) | Hard stop for any submission step; one hour of margin before 05:29. |
-| 05:29 (15 Nov) | Official deadline (14 Nov 23:59 UTC). |
+| 22:30 | **Decision D1.** Choose Path B (local sandbox, public repository, recorded video) unless a verified testnet rehearsal and a testnet-capable service already exist. Do not start section 5 under Path B. The human also decides whether to authorise a push of the integration branch (section 0a, item 1). |
+| 23:00 | Release candidate fixed: whatever of #10 and #11 has landed on the integration branch, plus the README disclosures from `license-dependency-check.md`. Start the final acceptance run on a clean clone (section 1.3). |
+| 00:15 | Acceptance run finished; README corrected; push authorised and done; CI result read (section 0a, item 2). |
+| 00:45 | Backup demonstration recorded, uncut (section 12). |
+| 01:45 | Hero cut exported; post text final. |
+| 02:15 | The human publishes the X post and has its URL. |
+| 02:45 | The human supplies and confirms the payload; one submission is sent (`submission-payload-template.md`). |
+| 04:30 | Hard stop for any submission step; one hour of margin. |
+| 05:29 | Official deadline. |
 
-The spec reserves the final six working hours for verification and submission. From 18:40 to 22:00 is 3 h 20 min, so the reserve is already shortened. Prefer cutting scope (Path B) over compressing verification.
+Under Path A (not recommended now) the lock approval gate in section 8 must start no later than 00:30, and the lock needs the section 1.4 prerequisites, which do not exist. If they cannot be shown by 22:30, drop Path A.
+
+The specification asked for the final six working hours for verification and submission; that reserve no longer exists in full. Prefer cutting scope (Path B) over compressing verification.
 
 ### 1.3 Rerun after #10, #11, #12 are merged (final acceptance)
 
@@ -206,7 +234,7 @@ Hosting and evidence chosen:   <...>
 - [ ] The restricted key's secret is in the service secret store and backed up securely; the human can recover it.
 - [ ] The human has written down what the lock removes (below) and accepts it.
 - [ ] A backup demonstration exists (section 12).
-- [ ] It is before the 20:45 IST gate in section 1.2, or the human explicitly accepts a later time.
+- [ ] It is no later than the Path A start time in section 1.2 (00:30 IST), or the human explicitly accepts a later time.
 
 ### 8.3 What the lock does and does not do
 
@@ -322,7 +350,7 @@ Order matters because the demo URL comes from the post.
 
 | Condition | Action |
 | --- | --- |
-| #12 incomplete at 20:00 IST | Path B; do not create the final account or lock. Say "local sandbox" everywhere. |
+| #12 incomplete, or no testnet rehearsal at 22:30 IST | Path B; do not create the final account or lock. Say "local sandbox" everywhere. |
 | Any item in 1.4 missing | Stop Path A; escalate for a scope decision. |
 | Wasm export list differs from the allowlist, or the fault hook is present | Do not deploy. Rebuild and re-inspect. |
 | Authorization probe says the key is not authorized | Do not lock. Fix the key (still possible before the lock). |
