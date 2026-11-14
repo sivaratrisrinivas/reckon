@@ -530,7 +530,7 @@ const server = createServer(async (req, res) => {
     if (process.env.RECKON_TEST === '1' && req.method === 'POST' && url.pathname === '/test/forecast-scenario') {
       const body = await readJsonBody(req);
       const scenario = body.scenario;
-      const allowed: FixtureScenario[] = ['publish', 'abstain', 'invalid-output', 'unsupported-confidence', 'stale-market', 'invalid-reference', 'unavailable-model', 'slow-publish'];
+      const allowed: FixtureScenario[] = ['publish', 'abstain', 'invalid-output', 'unsupported-confidence', 'unsupported-confidence-then-valid', 'stale-market', 'invalid-reference', 'unavailable-model', 'slow-publish'];
       if (providerMode !== 'fixture' || typeof scenario !== 'string' || (scenario !== 'unavailable-storage' && !allowed.includes(scenario as FixtureScenario))) {
         json(res, 400, {error: 'Unsupported forecast fixture'});
         return;

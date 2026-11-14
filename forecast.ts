@@ -38,10 +38,12 @@ const MAX_MODEL_ATTEMPTS_PER_UTC_DAY = 12;
 const STALE_OPERATION_LOCK_MS = 180_000;
 const CONFIDENCE_SCALE = 1_000_000;
 const MIN_CONFIDENCE_PPM = 100_000;
+// Extra model calls allowed when an answer's confidence cannot be quoted. Each one counts against the daily budget.
+const MAX_CONFIDENCE_REASKS = 2;
 const MAX_CONFIDENCE_PPM = 900_000;
 
 type Decision = 'yes' | 'no';
-export type FixtureScenario = 'publish' | 'abstain' | 'invalid-output' | 'unsupported-confidence' | 'stale-market' | 'invalid-reference' | 'unavailable-model' | 'slow-publish';
+export type FixtureScenario = 'publish' | 'abstain' | 'invalid-output' | 'unsupported-confidence' | 'unsupported-confidence-then-valid' | 'stale-market' | 'invalid-reference' | 'unavailable-model' | 'slow-publish';
 export type ProviderMode = 'fixture' | 'live';
 
 export type OnChainPrediction = {
@@ -251,7 +253,25 @@ export class ForecastService {
       }
 
       const modelStartedAt = (this.options.now ?? Date.now)();
-      const model = await this.callModel(evidence, scenario);
+      let model = await this.callModel(evidence, scenario, null);
+      // An answer outside the quotable range is never clamped: the model is asked again, within the
+      // call budget, for a confidence it commits to inside the range, and only that answer is published.
+      const confidenceReasks: Array<{rejected_confidence: number; request_id: string | null}> = [];
+      while (
+        model.result.ok
+        && model.result.value.decision !== 'abstain'
+        && !confidenceIsQuotable(model.result.value.confidence)
+        && confidenceReasks.length < MAX_CONFIDENCE_REASKS
+      ) {
+        if (this.options.mode === 'live') {
+          if (budget.model_attempts >= MAX_MODEL_ATTEMPTS_PER_UTC_DAY) break;
+          budget.model_attempts += 1;
+          await this.writeBudget(budget);
+        }
+        const rejected = model.result.value.confidence;
+        confidenceReasks.push({rejected_confidence: rejected, request_id: model.requestId});
+        model = await this.callModel(evidence, scenario, rejected);
+      }
       const modelFinishedAt = (this.options.now ?? Date.now)();
       if (!model.result.ok) return {status: 'unavailable', reason: model.result.reason, provider_mode: this.options.mode};
       const decision = model.result.value;
@@ -267,10 +287,12 @@ export class ForecastService {
       if (modelFinishedAt < modelStartedAt) {
         return {status: 'unavailable', reason: 'Provider time validation failed', provider_mode: this.options.mode};
       }
-      if (decision.confidence < MIN_CONFIDENCE_PPM / CONFIDENCE_SCALE || decision.confidence > MAX_CONFIDENCE_PPM / CONFIDENCE_SCALE) {
+      if (!confidenceIsQuotable(decision.confidence)) {
         return {
           status: 'unavailable',
-          reason: 'Model confidence is outside the supported 10%–90% fair-odds range.',
+          reason: confidenceReasks.length > 0
+            ? `Model confidence stayed outside the supported 10%–90% fair-odds range after ${confidenceReasks.length} re-ask(s).`
+            : 'Model confidence is outside the supported 10%–90% fair-odds range.',
           provider_mode: this.options.mode,
         };
       }
@@ -292,6 +314,7 @@ export class ForecastService {
           system_prompt: SYSTEM_PROMPT,
           response_format: 'strict JSON schema: decision, confidence, justification',
           response: decision,
+          confidence_reasks: confidenceReasks.map(reask => ({...reask, prompt: confidenceReaskPrompt(reask.rejected_confidence)})),
           confidence_representation: {
             scale: CONFIDENCE_SCALE,
             model_probability: decision.confidence,
@@ -399,7 +422,7 @@ export class ForecastService {
     };
   }
 
-  private async callModel(evidence: CollectedEvidence, scenario: FixtureScenario): Promise<{
+  private async callModel(evidence: CollectedEvidence, scenario: FixtureScenario, rejectedConfidence: number | null): Promise<{
     provider: string;
     modelId: string;
     result: ReturnType<typeof validateModel>;
@@ -412,8 +435,10 @@ export class ForecastService {
       if (scenario === 'slow-publish') await new Promise(resolve => setTimeout(resolve, 125));
       const content = scenario === 'invalid-output'
         ? '{"decision":"yes","confidence":1.2,"justification":"invalid fixture"}'
-        : scenario === 'unsupported-confidence'
+        : scenario === 'unsupported-confidence' || (scenario === 'unsupported-confidence-then-valid' && rejectedConfidence === null)
           ? JSON.stringify({decision: 'yes', confidence: 0.9000001, justification: 'This fixture is outside the supported quote range.'})
+        : scenario === 'unsupported-confidence-then-valid'
+          ? JSON.stringify({decision: 'yes', confidence: 0.8, justification: 'Asked again, this fixture commits to a quotable confidence.'})
         : scenario === 'abstain'
           ? JSON.stringify({decision: 'abstain', confidence: null, justification: 'The local fixture is abstaining for this scenario.'})
           : JSON.stringify({decision: 'no', confidence: 0.85, justification: 'The deterministic local fixture selects no.'});
@@ -438,6 +463,7 @@ export class ForecastService {
         messages: [
           {role: 'system', content: SYSTEM_PROMPT},
           {role: 'user', content: canonicalJson({question_and_rules: RULES, evidence})},
+          ...(rejectedConfidence === null ? [] : [{role: 'user', content: confidenceReaskPrompt(rejectedConfidence)}]),
         ],
         response_format: RESPONSE_FORMAT,
         max_tokens: 512,
@@ -712,4 +738,12 @@ function safeFailureReason(error: unknown): string {
   if (error.message.includes('candle') || error.message.includes('market')) return 'Recent completed market evidence is unavailable or stale';
   if (error.message.includes('Model')) return 'Configured model inference is unavailable';
   return 'A required forecast step was unavailable';
+}
+
+function confidenceIsQuotable(confidence: number): boolean {
+  return confidence >= MIN_CONFIDENCE_PPM / CONFIDENCE_SCALE && confidence <= MAX_CONFIDENCE_PPM / CONFIDENCE_SCALE;
+}
+
+function confidenceReaskPrompt(rejectedConfidence: number): string {
+  return `Your previous answer gave confidence ${rejectedConfidence}, which cannot be staked: the contract only quotes fair odds for a confidence from 0.10 to 0.90 inclusive. Answer again from the same evidence. Give the probability that your selected side is correct as a number from 0.10 to 0.90 that you commit to, or abstain with null confidence if you cannot. The confidence you give is published and staked exactly as given.`;
 }

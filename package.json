@@ -10,7 +10,7 @@
     "start": "sh scripts/with-archive-sandbox.sh tsx service.ts",
     "build:browser": "sh scripts/build-browser.sh",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx tests/diagnostic-validation.ts && node --import tsx tests/diagnostic-callback.ts && node --import tsx tests/diagnostic-code.ts && npm run test:contract && playwright test",
+    "test": "node --import tsx tests/forecast-reask.ts && node --import tsx tests/diagnostic-validation.ts && node --import tsx tests/diagnostic-callback.ts && node --import tsx tests/diagnostic-code.ts && npm run test:contract && playwright test",
     "test:contract": "tsx tests/contract.ts && tsx tests/settlement-contract.ts && sh scripts/with-archive-sandbox.sh tsx tests/payment-reconciliation.ts && npm run test:testnet && npm run test:rehearsal",
     "test:testnet": "tsx tests/testnet-chain.ts && tsx tests/testnet-service.ts",
     "test:settlement": "tsx tests/settlement-contract.ts",
