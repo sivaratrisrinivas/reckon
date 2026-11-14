@@ -235,7 +235,8 @@ footer {
   .prediction { padding: 16px 0 0; border: 0; border-top: 1px solid var(--border); background: transparent; }
   .challenge-panel { padding: 12px; }
   .record-entry { padding: 12px; }
-  .forecast-status, .settlement-state, .transaction-state { min-height: 4.7em; }
+  .forecast-status, .settlement-state, .transaction-state { min-height: 6.3em; }
+  .provider-label { min-height: 2lh; }
   .wallet-dialog { width: calc(100% - 16px); max-height: calc(100% - 16px); }
   .wallet-dialog-content { padding: 16px; }
   /* Financial terms read as a ledger on phones: label left, exact figure right, so consent terms and the action fit one screen. */

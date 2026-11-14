@@ -54,6 +54,9 @@ export async function ensureIdle(request: APIRequestContext): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 1_500));
   }
   await walletScenario(request, 'sandbox');
+  // A previous test may have drained the local wallet; tests that need it underfunded say so themselves.
+  const balance = BigInt((await (await request.get('/api/wallet/balance')).json()).available_balance);
+  if (balance < 10n * 10n ** 24n) await request.post('/api/wallet/fund');
 }
 
 export function formatNear(amount: string): string {

@@ -114,6 +114,7 @@ test('wallet preparation, thinking, abstention and cooldown each name their stat
   await auditState(page, 'preparation', {maximumPrimaryActions: 1});
 
   const release = await hold(page, '**/api/forecast');
+  await tabTo(page, '#fund-wallet-button'); // The keyboard walk moved focus; return to the one action.
   await page.keyboard.press('Enter'); // Fund local test wallet, keyboard only.
   await expect(page.locator(STATE_LABEL)).toHaveText('Thinking');
   await expect(page.locator('#glyph')).toHaveAttribute('data-state', 'thinking');
